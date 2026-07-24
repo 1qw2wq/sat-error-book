@@ -28,6 +28,7 @@ import { SATErrorItem, SATSubject, MasteryStatus } from '@/types/sat';
 import { recordReview } from '@/lib/db';
 import MathRenderer from './MathRenderer';
 import GraphRenderer from './GraphRenderer';
+import MarkdownRenderer from './MarkdownRenderer';
 import Scratchpad from './Scratchpad';
 
 interface FlashcardEngineProps {
@@ -497,7 +498,7 @@ export default function FlashcardEngine({
                   </div>
 
                   <div className="text-sm font-semibold text-amber-950 dark:text-amber-100 leading-relaxed">
-                    <MathRenderer text={currentItem.aiTakeaway} />
+                    <MarkdownRenderer content={currentItem.aiTakeaway} />
                   </div>
                 </div>
 
@@ -507,7 +508,7 @@ export default function FlashcardEngine({
                     Step-by-Step Breakdown
                   </h4>
                   <div className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
-                    <MathRenderer text={currentItem.explanation} />
+                    <MarkdownRenderer content={currentItem.explanation} />
                   </div>
 
                   {currentItem.userNotes && (
@@ -626,11 +627,11 @@ export default function FlashcardEngine({
             </div>
 
             {aiResponse && (
-              <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-800 dark:text-slate-200 space-y-2 max-h-60 overflow-y-auto whitespace-pre-wrap leading-relaxed">
+              <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-800 dark:text-slate-200 space-y-2 max-h-72 overflow-y-auto leading-relaxed">
                 <p className="font-bold text-blue-600 dark:text-blue-400">
                   AI Tutor Answer:
                 </p>
-                {aiResponse}
+                <MarkdownRenderer content={aiResponse} />
               </div>
             )}
           </div>

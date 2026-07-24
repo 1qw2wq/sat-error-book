@@ -6,6 +6,7 @@ import { SATErrorItem, MasteryStatus, MistakeType } from '@/types/sat';
 import { saveError, deleteError } from '@/lib/db';
 import MathRenderer from './MathRenderer';
 import GraphRenderer from './GraphRenderer';
+import MarkdownRenderer from './MarkdownRenderer';
 
 interface ErrorDetailModalProps {
   item: SATErrorItem | null;
@@ -204,7 +205,7 @@ export default function ErrorDetailModal({
               AI Active Recall Takeaway
             </h4>
             <div className="text-sm font-semibold text-amber-950 dark:text-amber-100 leading-relaxed">
-              <MathRenderer text={item.aiTakeaway} />
+              <MarkdownRenderer content={item.aiTakeaway} />
             </div>
           </div>
 
@@ -214,7 +215,7 @@ export default function ErrorDetailModal({
               Step-by-Step Explanation
             </h4>
             <div className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
-              <MathRenderer text={item.explanation} />
+              <MarkdownRenderer content={item.explanation} />
             </div>
           </div>
 
