@@ -1,12 +1,13 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Sparkles, Check, Trash2, Edit3, Save, Calendar, ImageIcon, Award, Clock } from 'lucide-react';
+import { X, Sparkles, Check, Trash2, Edit3, Save, Calendar, ImageIcon, Award, Clock, BookMarked } from 'lucide-react';
 import { SATErrorItem, MasteryStatus, MistakeType } from '@/types/sat';
 import { saveError, deleteError } from '@/lib/db';
 import MathRenderer from './MathRenderer';
 import GraphRenderer from './GraphRenderer';
 import MarkdownRenderer from './MarkdownRenderer';
+import AddVocabModal from './AddVocabModal';
 
 interface ErrorDetailModalProps {
   item: SATErrorItem | null;
@@ -22,6 +23,7 @@ export default function ErrorDetailModal({
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const [isEditing, setIsEditing] = useState(false);
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
+  const [isAddVocabOpen, setIsAddVocabOpen] = useState(false);
   const [userNotes, setUserNotes] = useState(item?.userNotes || '');
   const [mistakeType, setMistakeType] = useState<MistakeType>(item?.mistakeType || 'Careless Error');
   const [masteryStatus, setMasteryStatus] = useState<MasteryStatus>(item?.masteryStatus || 'Confused');
@@ -73,6 +75,16 @@ export default function ErrorDetailModal({
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setIsAddVocabOpen(true)}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 border border-indigo-200/50 dark:border-indigo-800/50 text-xs font-bold transition-colors"
+              title="Add a vocabulary word from this question"
+            >
+              <BookMarked className="w-3.5 h-3.5" />
+              <span>+ Vocab</span>
+            </button>
+
             <button
               type="button"
               onClick={() => setIsEditing(!isEditing)}
@@ -328,6 +340,17 @@ export default function ErrorDetailModal({
           )}
         </div>
       </div>
+
+      {isAddVocabOpen && (
+        <AddVocabModal
+          sourceQuestionId={item.id}
+          initialContext={item.questionText}
+          onClose={() => setIsAddVocabOpen(false)}
+          onSaved={() => {
+            setIsAddVocabOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 }

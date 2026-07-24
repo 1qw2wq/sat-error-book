@@ -84,6 +84,29 @@ export interface UserStats {
   isInitialSeeded?: boolean;
 }
 
+export interface VocabItem {
+  id: string;
+  word: string;
+  definition: string;
+  partOfSpeech?: string; // e.g. "adjective", "noun", "verb"
+  exampleSentence?: string;
+  synonyms?: string[];
+  satTip?: string;
+  sourceQuestionId?: string;
+  sourceContext?: string;
+  createdAt: string; // ISO date
+  masteryStatus?: MasteryStatus;
+}
+
+export interface DefineVocabResponse {
+  word: string;
+  definition: string;
+  partOfSpeech?: string;
+  exampleSentence?: string;
+  synonyms?: string[];
+  satTip?: string;
+}
+
 export interface ParseErrorResponse {
   subject: SATSubject;
   subTopic: string;

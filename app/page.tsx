@@ -8,13 +8,15 @@ import ErrorListTable from '@/components/ErrorListTable';
 import QuickReviewModal from '@/components/QuickReviewModal';
 import ErrorDetailModal from '@/components/ErrorDetailModal';
 import UploadModal from '@/components/UploadModal';
-import { getAllErrors, getUserStats } from '@/lib/db';
-import { SATErrorItem, UserStats } from '@/types/sat';
+import VocabBank from '@/components/VocabBank';
+import { getAllErrors, getUserStats, getAllVocab } from '@/lib/db';
+import { SATErrorItem, UserStats, VocabItem } from '@/types/sat';
 import { Sparkles, Brain } from 'lucide-react';
 
 export default function HomePage() {
-  const [currentTab, setCurrentTab] = useState<'dashboard' | 'review' | 'directory'>('dashboard');
+  const [currentTab, setCurrentTab] = useState<'dashboard' | 'review' | 'vocab' | 'directory'>('dashboard');
   const [errors, setErrors] = useState<SATErrorItem[]>([]);
+  const [vocabList, setVocabList] = useState<VocabItem[]>([]);
   const [stats, setStats] = useState<UserStats>({
     id: 'default_user',
     streakDays: 1,
@@ -43,8 +45,10 @@ export default function HomePage() {
     try {
       const allErr = await getAllErrors();
       const currentStats = await getUserStats();
+      const allVocab = await getAllVocab();
       setErrors(allErr);
       setStats(currentStats);
+      setVocabList(allVocab);
     } catch (err) {
       console.error('Error fetching data from IndexedDB:', err);
     } finally {
@@ -58,9 +62,11 @@ export default function HomePage() {
       try {
         const allErr = await getAllErrors();
         const currentStats = await getUserStats();
+        const allVocab = await getAllVocab();
         if (!ignore) {
           setErrors(allErr);
           setStats(currentStats);
+          setVocabList(allVocab);
         }
       } catch (err) {
         console.error('Error fetching data from IndexedDB:', err);
@@ -113,6 +119,7 @@ export default function HomePage() {
         onTabChange={setCurrentTab}
         stats={stats}
         dueCount={dueCount}
+        vocabCount={vocabList.length}
         onOpenUploader={() => {
           setIsUploadModalOpen(true);
         }}
@@ -145,6 +152,10 @@ export default function HomePage() {
                 }}
                 onExitReview={() => setCurrentTab('dashboard')}
               />
+            )}
+
+            {currentTab === 'vocab' && (
+              <VocabBank vocabList={vocabList} onRefreshVocab={refreshData} />
             )}
 
             {currentTab === 'directory' && (

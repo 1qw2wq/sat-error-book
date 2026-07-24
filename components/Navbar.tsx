@@ -10,14 +10,16 @@ import {
   PlusCircle,
   Sparkles,
   RotateCcw,
+  BookMarked,
 } from 'lucide-react';
 import { UserStats } from '@/types/sat';
 
 interface NavbarProps {
-  currentTab: 'dashboard' | 'review' | 'directory';
-  onTabChange: (tab: 'dashboard' | 'review' | 'directory') => void;
+  currentTab: 'dashboard' | 'review' | 'vocab' | 'directory';
+  onTabChange: (tab: 'dashboard' | 'review' | 'vocab' | 'directory') => void;
   stats: UserStats;
   dueCount: number;
+  vocabCount?: number;
   onOpenUploader: () => void;
 }
 
@@ -26,6 +28,7 @@ export default function Navbar({
   onTabChange,
   stats,
   dueCount,
+  vocabCount,
   onOpenUploader,
 }: NavbarProps) {
   return (
@@ -81,6 +84,23 @@ export default function Navbar({
             {dueCount > 0 && (
               <span className="px-1.5 py-0.2 rounded-full bg-rose-500 text-white font-mono text-[10px] font-bold ml-0.5">
                 {dueCount}
+              </span>
+            )}
+          </button>
+
+          <button
+            onClick={() => onTabChange('vocab')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all ${
+              currentTab === 'vocab'
+                ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <BookMarked className="w-3.5 h-3.5" />
+            <span>Vocab Bank</span>
+            {vocabCount !== undefined && vocabCount > 0 && (
+              <span className="px-1.5 py-0.2 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-mono text-[10px] font-bold ml-0.5">
+                {vocabCount}
               </span>
             )}
           </button>

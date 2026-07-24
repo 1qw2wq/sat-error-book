@@ -1,5 +1,5 @@
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
-import { SATErrorItem, ReviewLog, UserStats } from '@/types/sat';
+import { SATErrorItem, ReviewLog, UserStats, VocabItem } from '@/types/sat';
 
 interface SatBookDB extends DBSchema {
   errors: {
@@ -23,10 +23,18 @@ interface SatBookDB extends DBSchema {
     key: string;
     value: UserStats;
   };
+  vocab: {
+    key: string;
+    value: VocabItem;
+    indexes: {
+      'by-word': string;
+      'by-createdAt': string;
+    };
+  };
 }
 
 const DB_NAME = 'SatErrorBookDatabase';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 let dbPromise: Promise<IDBPDatabase<SatBookDB>> | null = null;
 
@@ -56,10 +64,77 @@ function getDB() {
         if (!db.objectStoreNames.contains('user_stats')) {
           db.createObjectStore('user_stats', { keyPath: 'id' });
         }
+
+        // Vocab Store
+        if (!db.objectStoreNames.contains('vocab')) {
+          const vocabStore = db.createObjectStore('vocab', { keyPath: 'id' });
+          vocabStore.createIndex('by-word', 'word');
+          vocabStore.createIndex('by-createdAt', 'createdAt');
+        }
       },
     });
   }
   return dbPromise;
+}
+
+export function createDefaultSeedVocab(): VocabItem[] {
+  return [
+    {
+      id: 'seed-vocab-1',
+      word: 'Eminent',
+      definition: 'Famous, respected, or prominent within a particular sphere or profession.',
+      partOfSpeech: 'adjective',
+      exampleSentence: 'The panel featured an eminent scientist known for pioneering research in cellular biology.',
+      synonyms: ['Distinguished', 'Renowned', 'Prominent', 'Prestigious'],
+      satTip: 'Do not confuse with "Imminent" (about to happen) or "Immanent" (inherent).',
+      createdAt: new Date(Date.now() - 86400000 * 4).toISOString(),
+      masteryStatus: 'Learning',
+    },
+    {
+      id: 'seed-vocab-2',
+      word: 'Imminent',
+      definition: 'About to happen; impending or fast approaching.',
+      partOfSpeech: 'adjective',
+      exampleSentence: 'Dark storm clouds gathered over the horizon, signaling that rainfall was imminent.',
+      synonyms: ['Impending', 'Approaching', 'Looming', 'Unavoidable'],
+      satTip: 'Often used in SAT reading passages describing sudden environmental shifts or urgent political crises.',
+      createdAt: new Date(Date.now() - 86400000 * 3).toISOString(),
+      masteryStatus: 'Confused',
+    },
+    {
+      id: 'seed-vocab-3',
+      word: 'Equivocal',
+      definition: 'Open to more than one interpretation; ambiguous or misleading.',
+      partOfSpeech: 'adjective',
+      exampleSentence: 'The candidate gave an equivocal response when asked about tax policy, avoiding a direct stance.',
+      synonyms: ['Ambiguous', 'Evasive', 'Vague', 'Noncommittal'],
+      satTip: 'Root "equi-" (equal) + "voc" (voice) = speaking with equal voices so neither side is clear.',
+      createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
+      masteryStatus: 'Learning',
+    },
+    {
+      id: 'seed-vocab-4',
+      word: 'Pragmatic',
+      definition: 'Dealing with things sensibly and realistically based on practical considerations rather than theoretical ones.',
+      partOfSpeech: 'adjective',
+      exampleSentence: 'Taking a pragmatic approach, the architect prioritized structural durability over ornate decoration.',
+      synonyms: ['Practical', 'Utilitarian', 'Sensible', 'Down-to-earth'],
+      satTip: 'Frequently appears when contrast is drawn between idealistic theory and practical reality.',
+      createdAt: new Date(Date.now() - 86400000 * 1).toISOString(),
+      masteryStatus: 'Mastered',
+    },
+    {
+      id: 'seed-vocab-5',
+      word: 'Substantiate',
+      definition: 'Provide evidence to support or prove the truth of an argument or claim.',
+      partOfSpeech: 'verb',
+      exampleSentence: 'The researcher cited multiple empirical studies to substantiate her groundbreaking hypothesis.',
+      synonyms: ['Corroborate', 'Validate', 'Verify', 'Authenticate'],
+      satTip: 'Crucial verb in SAT Command of Evidence questions asking which quote best substantiates a point.',
+      createdAt: new Date().toISOString(),
+      masteryStatus: 'Learning',
+    },
+  ];
 }
 
 // Sample initial data generator
@@ -400,3 +475,37 @@ export async function recordStudyActivity(): Promise<UserStats> {
   await db.put('user_stats', updatedStats);
   return updatedStats;
 }
+
+// Vocab Operations
+export async function getAllVocab(): Promise<VocabItem[]> {
+  const db = await getDB();
+  const items = await db.getAll('vocab');
+
+  if (items.length === 0) {
+    const seed = createDefaultSeedVocab();
+    const tx = db.transaction('vocab', 'readwrite');
+    for (const v of seed) {
+      await tx.store.put(v);
+    }
+    await tx.done;
+    return seed;
+  }
+
+  return items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+}
+
+export async function getVocabById(id: string): Promise<VocabItem | undefined> {
+  const db = await getDB();
+  return db.get('vocab', id);
+}
+
+export async function saveVocab(vocab: VocabItem): Promise<void> {
+  const db = await getDB();
+  await db.put('vocab', vocab);
+}
+
+export async function deleteVocab(id: string): Promise<void> {
+  const db = await getDB();
+  await db.delete('vocab', id);
+}
+

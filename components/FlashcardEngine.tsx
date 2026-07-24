@@ -23,6 +23,7 @@ import {
   Loader2,
   X,
   ImageIcon,
+  BookMarked,
 } from 'lucide-react';
 import { SATErrorItem, SATSubject, MasteryStatus } from '@/types/sat';
 import { recordReview } from '@/lib/db';
@@ -30,6 +31,7 @@ import MathRenderer from './MathRenderer';
 import GraphRenderer from './GraphRenderer';
 import MarkdownRenderer from './MarkdownRenderer';
 import Scratchpad from './Scratchpad';
+import AddVocabModal from './AddVocabModal';
 
 interface FlashcardEngineProps {
   errors: SATErrorItem[];
@@ -45,6 +47,9 @@ export default function FlashcardEngine({
   const [filterSubject, setFilterSubject] = useState<string>('All');
   const [filterMastery, setFilterMastery] = useState<string>('ConfusedOrDue');
   const [currentIndex, setCurrentIndex] = useState(0);
+
+  // Vocab Modal State
+  const [isAddVocabOpen, setIsAddVocabOpen] = useState(false);
 
   // Review states
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
@@ -487,14 +492,25 @@ export default function FlashcardEngine({
                       </span>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => setShowAiModal(true)}
-                      className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold hover:text-blue-600 dark:hover:text-blue-400 transition-colors shadow-xs"
-                    >
-                      <MessageSquare className="w-3.5 h-3.5 text-blue-500" />
-                      <span>Ask AI Tutor</span>
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setIsAddVocabOpen(true)}
+                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 text-xs font-semibold hover:bg-indigo-100 transition-colors shadow-xs"
+                      >
+                        <BookMarked className="w-3.5 h-3.5 text-indigo-500" />
+                        <span>+ Vocab Word</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setShowAiModal(true)}
+                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold hover:text-blue-600 dark:hover:text-blue-400 transition-colors shadow-xs"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5 text-blue-500" />
+                        <span>Ask AI Tutor</span>
+                      </button>
+                    </div>
                   </div>
 
                   <div className="text-sm font-semibold text-amber-950 dark:text-amber-100 leading-relaxed">
@@ -636,6 +652,17 @@ export default function FlashcardEngine({
             )}
           </div>
         </div>
+      )}
+
+      {isAddVocabOpen && currentItem && (
+        <AddVocabModal
+          sourceQuestionId={currentItem.id}
+          initialContext={currentItem.questionText}
+          onClose={() => setIsAddVocabOpen(false)}
+          onSaved={() => {
+            setIsAddVocabOpen(false);
+          }}
+        />
       )}
     </div>
   );
