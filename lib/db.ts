@@ -258,6 +258,26 @@ export async function deleteError(id: string): Promise<void> {
   await updateStatsOnSave();
 }
 
+export async function importErrorsBatch(importedItems: SATErrorItem[]): Promise<number> {
+  const db = await getDB();
+  const tx = db.transaction('errors', 'readwrite');
+  let count = 0;
+  for (const item of importedItems) {
+    if (item && item.id && item.subject && item.questionText) {
+      await tx.store.put(item);
+      count++;
+    }
+  }
+  await tx.done;
+
+  const stats = await getUserStats();
+  stats.isInitialSeeded = true;
+  await db.put('user_stats', stats);
+  await updateStatsOnSave();
+
+  return count;
+}
+
 export async function recordReview(
   errorId: string,
   rating: 'confused' | 'learning' | 'mastered',

@@ -1,21 +1,151 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { GraphData } from '@/types/sat';
-import { Activity, Table as TableIcon, Layers } from 'lucide-react';
+import { Activity, Table as TableIcon, Layers, Maximize2, X } from 'lucide-react';
 import MathRenderer from './MathRenderer';
+import { cropImageBoundingBox } from '@/lib/imageCropper';
 
 interface GraphRendererProps {
   graphData?: GraphData | null;
+  imageDataUrl?: string;
+  imageDataUrls?: string[];
   className?: string;
 }
 
-export default function GraphRenderer({ graphData, className = '' }: GraphRendererProps) {
+export default function GraphRenderer({
+  graphData,
+  imageDataUrl,
+  imageDataUrls,
+  className = '',
+}: GraphRendererProps) {
+  const [isZoomed, setIsZoomed] = useState(false);
+  const [dynamicCropUrl, setDynamicCropUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function generateCrop() {
+      if (!graphData || !graphData.hasGraph || graphData.croppedGraphUrl) {
+        setDynamicCropUrl(null);
+        return;
+      }
+
+      // Pick source screenshot
+      let sourceImg = imageDataUrl;
+      if (!sourceImg && imageDataUrls && imageDataUrls.length > 0) {
+        const idx = graphData.imageIndex || 0;
+        sourceImg = imageDataUrls[idx] || imageDataUrls[0];
+      }
+
+      if (sourceImg) {
+        const box = graphData.box2d || [0, 0, 550, 1000];
+        try {
+          const cropped = await cropImageBoundingBox(sourceImg, box);
+          if (isMounted) {
+            setDynamicCropUrl(cropped);
+          }
+        } catch (e) {
+          if (isMounted) {
+            setDynamicCropUrl(sourceImg);
+          }
+        }
+      }
+    }
+
+    generateCrop();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [graphData, imageDataUrl, imageDataUrls]);
+
   if (!graphData || !graphData.hasGraph) return null;
 
   const { graphType, title, xAxisLabel, yAxisLabel, equation, points, tableData, description } = graphData;
+  const activeCroppedUrl = graphData.croppedGraphUrl || dynamicCropUrl;
 
-  // Render Table if tableData is present
+  // PRIORITY 1: Render Cropped Graph snippet cut directly from the screenshot if available
+  if (activeCroppedUrl) {
+    return (
+      <div className={`my-4 p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 shadow-xs space-y-3 ${className}`}>
+        <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2">
+          <div className="flex items-center gap-2">
+            <Activity className="w-4 h-4 text-blue-500" />
+            <span className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
+              {title || (graphType ? `${graphType.toUpperCase()} Visual Chart` : 'Extracted Question Graph / Chart')}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsZoomed(true)}
+            className="flex items-center gap-1 text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:underline"
+          >
+            <Maximize2 className="w-3.5 h-3.5" />
+            <span>Click to Expand</span>
+          </button>
+        </div>
+
+        {/* Cropped Image Container cut from screenshot */}
+        <div
+          onClick={() => setIsZoomed(true)}
+          className="relative rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-2 overflow-hidden cursor-zoom-in flex items-center justify-center group"
+        >
+          <img
+            src={activeCroppedUrl}
+            alt={title || 'Extracted graph from screenshot'}
+            className="max-h-80 w-auto object-contain rounded transition-transform duration-200 group-hover:scale-[1.01]"
+          />
+          <div className="absolute top-2 right-2 px-2.5 py-1 bg-slate-900/80 text-white rounded-lg text-[10px] font-semibold backdrop-blur-xs opacity-0 group-hover:opacity-100 transition-opacity">
+            Click to Zoom
+          </div>
+        </div>
+
+        {description && (
+          <div className="p-3 rounded-lg bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
+            <span className="font-bold text-slate-900 dark:text-white block mb-1 flex items-center gap-1">
+              <Layers className="w-3.5 h-3.5 text-blue-500" />
+              Chart Details:
+            </span>
+            <MathRenderer text={description} />
+          </div>
+        )}
+
+        {/* Lightbox Zoom Modal */}
+        {isZoomed && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in"
+            onClick={() => setIsZoomed(false)}
+          >
+            <div
+              className="relative max-w-5xl max-h-[92vh] bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col items-center overflow-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="w-full flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2 mb-3">
+                <span className="text-sm font-bold text-slate-900 dark:text-white">
+                  {title || 'Extracted Graph / Chart Image'}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setIsZoomed(false)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <img
+                src={activeCroppedUrl}
+                alt="Zoomed graph snippet"
+                className="max-h-[78vh] w-auto object-contain rounded"
+              />
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // PRIORITY 2: Render Table if tableData is present
   if (tableData && tableData.headers && tableData.headers.length > 0) {
     return (
       <div className={`my-4 p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/80 shadow-xs space-y-3 ${className}`}>
@@ -63,7 +193,7 @@ export default function GraphRenderer({ graphData, className = '' }: GraphRender
     );
   }
 
-  // Parse linear slope & intercept if equation is like "y = mx + b"
+  // PRIORITY 3: Fallback SVG line graph if mathematical equation is present
   let lineCoords: { x1: number; y1: number; x2: number; y2: number } | null = null;
   let isQuadratic = false;
   let quadParams: { a: number; h: number; k: number } | null = null;
@@ -97,7 +227,6 @@ export default function GraphRenderer({ graphData, className = '' }: GraphRender
         }
       }
 
-      // Compute endpoints for x in [-10, 10]
       lineCoords = {
         x1: -10,
         y1: m * -10 + b,
@@ -106,7 +235,6 @@ export default function GraphRenderer({ graphData, className = '' }: GraphRender
       };
     } else if (cleanEq.includes('x^2')) {
       isQuadratic = true;
-      // Default standard parabola y = x^2 or similar
       quadParams = { a: 1, h: 0, k: 0 };
     }
   }
@@ -120,11 +248,9 @@ export default function GraphRenderer({ graphData, className = '' }: GraphRender
   const yMin = -10;
   const yMax = 10;
 
-  // Map math coordinate (x, y) to SVG (px, py)
   const mapX = (x: number) => margin + ((x - xMin) / (xMax - xMin)) * (svgWidth - 2 * margin);
   const mapY = (y: number) => svgHeight - margin - ((y - yMin) / (yMax - yMin)) * (svgHeight - 2 * margin);
 
-  // Generate quadratic SVG path
   let quadPathStr = '';
   if (isQuadratic) {
     const quadPoints: string[] = [];
@@ -159,10 +285,8 @@ export default function GraphRenderer({ graphData, className = '' }: GraphRender
         {/* SVG Coordinate Plane */}
         <div className="relative bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-2 shadow-inner">
           <svg width={svgWidth} height={svgHeight} className="overflow-visible select-none">
-            {/* Gridlines */}
             {[-8, -6, -4, -2, 2, 4, 6, 8].map((v) => (
               <React.Fragment key={`grid-${v}`}>
-                {/* Vertical grid line */}
                 <line
                   x1={mapX(v)}
                   y1={margin}
@@ -173,7 +297,6 @@ export default function GraphRenderer({ graphData, className = '' }: GraphRender
                   strokeDasharray="2 2"
                   className="dark:stroke-slate-800"
                 />
-                {/* Horizontal grid line */}
                 <line
                   x1={margin}
                   y1={mapY(v)}
@@ -187,7 +310,6 @@ export default function GraphRenderer({ graphData, className = '' }: GraphRender
               </React.Fragment>
             ))}
 
-            {/* X Axis */}
             <line
               x1={margin - 10}
               y1={mapY(0)}
@@ -197,7 +319,6 @@ export default function GraphRenderer({ graphData, className = '' }: GraphRender
               strokeWidth="2"
               className="dark:stroke-slate-400"
             />
-            {/* Y Axis */}
             <line
               x1={mapX(0)}
               y1={svgHeight - margin + 10}
@@ -208,11 +329,9 @@ export default function GraphRenderer({ graphData, className = '' }: GraphRender
               className="dark:stroke-slate-400"
             />
 
-            {/* Axis Arrows */}
             <polygon points={`${svgWidth - margin + 12},${mapY(0)} ${svgWidth - margin + 5},${mapY(0) - 4} ${svgWidth - margin + 5},${mapY(0) + 4}`} fill="#475569" className="dark:fill-slate-400" />
             <polygon points={`${mapX(0)},${margin - 12} ${mapX(0) - 4},${margin - 5} ${mapX(0) + 4},${margin - 5}`} fill="#475569" className="dark:fill-slate-400" />
 
-            {/* Axis Labels */}
             <text x={svgWidth - margin + 15} y={mapY(0) + 4} fontSize="11" fontWeight="bold" fill="#334155" className="dark:fill-slate-300">
               {xAxisLabel || 'x'}
             </text>
@@ -220,7 +339,6 @@ export default function GraphRenderer({ graphData, className = '' }: GraphRender
               {yAxisLabel || 'y'}
             </text>
 
-            {/* Tick Numbers */}
             {[-8, -4, 4, 8].map((val) => (
               <React.Fragment key={`tick-${val}`}>
                 <text x={mapX(val)} y={mapY(0) + 14} fontSize="9" fill="#94a3b8" textAnchor="middle">
@@ -232,12 +350,10 @@ export default function GraphRenderer({ graphData, className = '' }: GraphRender
               </React.Fragment>
             ))}
 
-            {/* Origin label */}
             <text x={mapX(0) - 8} y={mapY(0) + 12} fontSize="9" fill="#94a3b8">
               O
             </text>
 
-            {/* Linear Line */}
             {lineCoords && (
               <line
                 x1={mapX(lineCoords.x1)}
@@ -250,12 +366,10 @@ export default function GraphRenderer({ graphData, className = '' }: GraphRender
               />
             )}
 
-            {/* Quadratic Curve */}
             {quadPathStr && (
               <path d={quadPathStr} fill="none" stroke="#2563eb" strokeWidth="3" strokeLinecap="round" />
             )}
 
-            {/* Scatter points / labeled points */}
             {points?.map((pt, idx) => (
               <g key={idx}>
                 <circle cx={mapX(pt.x)} cy={mapY(pt.y)} r="5" fill="#ef4444" stroke="#ffffff" strokeWidth="2" />
@@ -274,7 +388,6 @@ export default function GraphRenderer({ graphData, className = '' }: GraphRender
           </svg>
         </div>
 
-        {/* Legend & Details */}
         <div className="flex-1 space-y-2 text-xs">
           {description && (
             <div className="p-3 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 leading-relaxed">

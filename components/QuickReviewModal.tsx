@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Sparkles, Check, AlertCircle, Loader2, Save, Tag, HelpCircle, Edit3, Image as ImageIcon } from 'lucide-react';
 import { SATErrorItem, SATSubject, MistakeType, ParseErrorResponse, GraphData } from '@/types/sat';
 import { saveError } from '@/lib/db';
+import { cropImageBoundingBox } from '@/lib/imageCropper';
 import MathRenderer from './MathRenderer';
 import GraphRenderer from './GraphRenderer';
 
@@ -97,7 +98,27 @@ export default function QuickReviewModal({
           setAiTakeaway(data.aiTakeaway || '');
           setExplanation(data.explanation || '');
           if (data.graphData && data.graphData.hasGraph) {
-            setGraphData(data.graphData);
+            const gData = { ...data.graphData };
+            const imgIndex = gData.imageIndex || 0;
+            const targetImg = activeImages[imgIndex] || activeImages[0];
+
+            if (targetImg) {
+              if (gData.box2d && gData.box2d.length === 4) {
+                try {
+                  gData.croppedGraphUrl = await cropImageBoundingBox(targetImg, gData.box2d);
+                } catch (e) {
+                  gData.croppedGraphUrl = targetImg;
+                }
+              } else {
+                // Default top crop if box2d is missing
+                try {
+                  gData.croppedGraphUrl = await cropImageBoundingBox(targetImg, [0, 0, 500, 1000]);
+                } catch (e) {
+                  gData.croppedGraphUrl = targetImg;
+                }
+              }
+            }
+            setGraphData(gData);
           }
           if (data.mistakeTypeHint) {
             setMistakeType(data.mistakeTypeHint);
@@ -346,7 +367,7 @@ export default function QuickReviewModal({
 
               {/* Render Detected Graph / Diagram if present */}
               {graphData && graphData.hasGraph && (
-                <GraphRenderer graphData={graphData} />
+                <GraphRenderer graphData={graphData} imageDataUrls={activeImages} />
               )}
 
               {/* AI Active Recall Takeaway Box */}

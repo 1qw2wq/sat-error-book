@@ -155,7 +155,11 @@ export default function ErrorDetailModal({
 
           {/* Render Graph / Diagram / Data Table if present */}
           {item.graphData && item.graphData.hasGraph && (
-            <GraphRenderer graphData={item.graphData} />
+            <GraphRenderer
+              graphData={item.graphData}
+              imageDataUrl={item.imageDataUrl}
+              imageDataUrls={item.imageDataUrls}
+            />
           )}
 
           {/* Question text */}

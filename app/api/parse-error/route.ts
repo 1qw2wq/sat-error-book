@@ -83,11 +83,12 @@ CRITICAL OCR & SYNTHESIS DIRECTIVES:
    - Retain complete line breaks and passage paragraphs accurately.
 4. Answer Choices: Extract choices A, B, C, D if present with exact option text and LaTeX for math.
    - If it's a student-produced response (grid-in math question), return an empty array [].
-5. Graph, Chart, or Data Table Extraction:
-   - Carefully inspect the screenshot(s) for coordinate graphs, scatter plots, line graphs, bar charts, data tables, or geometric diagrams.
-   - If a graph, table, or diagram is visible, set \`graphData.hasGraph = true\`.
-   - Extract the equation (e.g. $y = -0.75x + 6$), axis labels, key points (e.g. x/y-intercepts, vertex, data points), or table headers & rows.
-   - Provide a clear 1-2 sentence descriptive summary of the visual element in \`graphData.description\`.
+5. Graph, Chart, Geometry Diagram, or Data Table Detection & Bounding Box:
+   - Carefully inspect the screenshot(s) for ANY visual elements: coordinate graphs, bar charts, line plots, scatterplots, data tables, geometric shapes/diagrams, or Reading & Writing passage charts (e.g. Bedbug Complaints bar chart).
+   - If a graph, table, or visual diagram is visible, set \`graphData.hasGraph = true\`.
+   - CRITICAL: Detect the EXACT bounding box around the visual graph/chart/diagram region (including title, bars/axes, labels, numbers, and legend) in normalized 0..1000 scale: \`box2d: [ymin, xmin, ymax, xmax]\`.
+   - Set \`imageIndex\` to the 0-based index of the screenshot image containing the graph/chart (default 0).
+   - Extract title, equation (e.g. $y = -0.75x + 6$), axis labels, key points, table headers/rows, and a clear 1-2 sentence description in \`graphData.description\`.
 6. Correct Answer:
    - Identify the single correct answer label ('A', 'B', 'C', 'D' or exact numerical string like '23' or '4/3').
    - If the screenshot shows correct/incorrect markings or selected answer annotations, utilize them. Otherwise, logically solve it step-by-step to determine the correct answer.
@@ -189,6 +190,12 @@ ${userNote ? `User context/note: "${userNote}"` : ''}
                   },
                 },
                 description: { type: Type.STRING, description: "Detailed description of visual graph or diagram" },
+                imageIndex: { type: Type.INTEGER, description: "0-based index of screenshot containing graph" },
+                box2d: {
+                  type: Type.ARRAY,
+                  items: { type: Type.INTEGER },
+                  description: "Bounding box [ymin, xmin, ymax, xmax] normalized to 0..1000 scale around graph/chart",
+                },
               },
             },
             mistakeTypeHint: {

@@ -385,7 +385,11 @@ export default function FlashcardEngine({
 
               {/* Render detected graph or table if available */}
               {currentItem.graphData && currentItem.graphData.hasGraph && (
-                <GraphRenderer graphData={currentItem.graphData} />
+                <GraphRenderer
+                  graphData={currentItem.graphData}
+                  imageDataUrl={currentItem.imageDataUrl}
+                  imageDataUrls={currentItem.imageDataUrls}
+                />
               )}
 
               {/* Question Text */}
