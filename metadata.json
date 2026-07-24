@@ -1,0 +1,6 @@
+{
+  "name": "SAT Error Book",
+  "description": "AI-Powered SAT Error Log with instant screenshot auto-extraction, active recall flashcards, and weak spot analytics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
