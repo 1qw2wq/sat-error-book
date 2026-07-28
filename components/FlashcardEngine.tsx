@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { SATErrorItem, SATSubject, MasteryStatus } from '@/types/sat';
 import { recordReview } from '@/lib/db';
+import { gradeStudentResponse } from '@/lib/answerGrading';
 import MathRenderer from './MathRenderer';
 import GraphRenderer from './GraphRenderer';
 import MarkdownRenderer from './MarkdownRenderer';
@@ -53,9 +54,16 @@ export default function FlashcardEngine({
 
   // Review states
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
+  const [showScreenshot, setShowScreenshot] = useState(false);
   const [isRevealed, setIsRevealed] = useState(false);
   const [showScratchpad, setShowScratchpad] = useState(true);
   const [selectedChoice, setSelectedChoice] = useState<string | null>(null);
+  const [typedAnswer, setTypedAnswer] = useState('');
+  const [typedGradingResult, setTypedGradingResult] = useState<{
+    isCorrect: boolean;
+    normalizedUser: string;
+    normalizedCorrect: string;
+  } | null>(null);
   const [timeSpentSeconds, setTimeSpentSeconds] = useState(0);
 
   // AI Tutor Ask Drawer
@@ -90,9 +98,19 @@ export default function FlashcardEngine({
   const resetCardState = () => {
     setCurrentIndex(0);
     setSelectedImageIndex(0);
+    setShowScreenshot(false);
     setIsRevealed(false);
     setSelectedChoice(null);
+    setTypedAnswer('');
+    setTypedGradingResult(null);
     setTimeSpentSeconds(0);
+  };
+
+  const handleGradeTypedResponse = () => {
+    if (!currentItem) return;
+    const result = gradeStudentResponse(typedAnswer, currentItem.correctAnswer);
+    setTypedGradingResult(result);
+    setIsRevealed(true);
   };
 
   // Timer for time spent per question
@@ -142,7 +160,10 @@ export default function FlashcardEngine({
     // Advance to next card or loop
     setIsRevealed(false);
     setSelectedChoice(null);
+    setTypedAnswer('');
+    setTypedGradingResult(null);
     setSelectedImageIndex(0);
+    setShowScreenshot(false);
     setTimeSpentSeconds(0);
 
     if (currentIndex + 1 < deck.length) {
@@ -361,29 +382,58 @@ export default function FlashcardEngine({
             <div className="space-y-4">
               {imagesList.length > 0 && (
                 <div className="space-y-2">
-                  <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-950 p-2 overflow-hidden max-h-72 flex justify-center items-center">
-                    <img
-                      src={imagesList[selectedImageIndex] || imagesList[0]}
-                      alt="Question screenshot"
-                      className="max-h-68 w-auto object-contain rounded"
-                    />
+                  <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => setShowScreenshot((prev) => !prev)}
+                      className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold transition-colors shadow-xs"
+                    >
+                      <ImageIcon className="w-4 h-4 text-blue-500" />
+                      <span>
+                        {showScreenshot
+                          ? 'Hide Original Screenshot'
+                          : 'Show Original Screenshot (Spoiler Warning)'}
+                      </span>
+                      {showScreenshot ? (
+                        <EyeOff className="w-3.5 h-3.5 ml-1 text-slate-400" />
+                      ) : (
+                        <Eye className="w-3.5 h-3.5 ml-1 text-slate-400" />
+                      )}
+                    </button>
+                    {!showScreenshot && (
+                      <span className="text-[11px] text-slate-600 dark:text-slate-300 italic font-medium">
+                        Hidden by default to prevent answer spoilers
+                      </span>
+                    )}
                   </div>
-                  {imagesList.length > 1 && (
-                    <div className="flex items-center gap-2 overflow-x-auto py-1">
-                      {imagesList.map((url, idx) => (
-                        <button
-                          key={idx}
-                          type="button"
-                          onClick={() => setSelectedImageIndex(idx)}
-                          className={`w-16 h-12 rounded-lg border overflow-hidden shrink-0 bg-slate-950 p-0.5 transition-all ${
-                            selectedImageIndex === idx
-                              ? 'border-blue-500 ring-2 ring-blue-500/40 opacity-100'
-                              : 'border-slate-300 dark:border-slate-800 opacity-60 hover:opacity-100'
-                          }`}
-                        >
-                          <img src={url} alt={`Screenshot ${idx + 1}`} className="w-full h-full object-contain" />
-                        </button>
-                      ))}
+
+                  {showScreenshot && (
+                    <div className="space-y-2 animate-in fade-in duration-200">
+                      <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-950 p-2 overflow-hidden max-h-72 flex justify-center items-center">
+                        <img
+                          src={imagesList[selectedImageIndex] || imagesList[0]}
+                          alt="Question screenshot"
+                          className="max-h-68 w-auto object-contain rounded"
+                        />
+                      </div>
+                      {imagesList.length > 1 && (
+                        <div className="flex items-center gap-2 overflow-x-auto py-1">
+                          {imagesList.map((url, idx) => (
+                            <button
+                              key={idx}
+                              type="button"
+                              onClick={() => setSelectedImageIndex(idx)}
+                              className={`w-16 h-12 rounded-lg border overflow-hidden shrink-0 bg-slate-950 p-0.5 transition-all ${
+                                selectedImageIndex === idx
+                                  ? 'border-blue-500 ring-2 ring-blue-500/40 opacity-100'
+                                  : 'border-slate-300 dark:border-slate-800 opacity-60 hover:opacity-100'
+                              }`}
+                            >
+                              <img src={url} alt={`Screenshot ${idx + 1}`} className="w-full h-full object-contain" />
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -408,8 +458,8 @@ export default function FlashcardEngine({
                 </div>
               </div>
 
-              {/* Answer Choices Grid */}
-              {currentItem.answerChoices && currentItem.answerChoices.length > 0 && (
+              {/* Answer Choices Grid OR Non-Selection Student-Produced Response */}
+              {currentItem.answerChoices && currentItem.answerChoices.length > 0 ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {currentItem.answerChoices.map((choice) => {
                     const isCorrect = choice.label === currentItem.correctAnswer;
@@ -452,6 +502,65 @@ export default function FlashcardEngine({
                       </button>
                     );
                   })}
+                </div>
+              ) : (
+                /* Non-selection Grid-In Answer Input & Auto-Grade */
+                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                      <PenTool className="w-4 h-4 text-blue-500" />
+                      Student-Produced Response (Grid-In Answer)
+                    </span>
+                    <span className="text-[11px] text-slate-600 dark:text-slate-300">
+                      e.g. 23, 4/3, .75, or exact value
+                    </span>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={typedAnswer}
+                      onChange={(e) => setTypedAnswer(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleGradeTypedResponse();
+                      }}
+                      placeholder="Type your response here..."
+                      disabled={isRevealed}
+                      className="flex-1 px-4 py-2.5 text-sm font-semibold rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-75"
+                    />
+                    {!isRevealed && (
+                      <button
+                        type="button"
+                        onClick={handleGradeTypedResponse}
+                        className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-sm transition-colors shrink-0"
+                      >
+                        Grade Answer
+                      </button>
+                    )}
+                  </div>
+
+                  {typedGradingResult && (
+                    <div
+                      className={`p-3 rounded-xl border text-xs font-semibold flex items-center justify-between ${
+                        typedGradingResult.isCorrect
+                          ? 'bg-emerald-50 dark:bg-emerald-950/80 border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200'
+                          : 'bg-rose-50 dark:bg-rose-950/80 border-rose-300 dark:border-rose-800 text-rose-900 dark:text-rose-200'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        {typedGradingResult.isCorrect ? (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                        ) : (
+                          <XCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+                        )}
+                        <span>
+                          {typedGradingResult.isCorrect
+                            ? `Correct! Your answer "${typedGradingResult.normalizedUser}" matches "${typedGradingResult.normalizedCorrect}".`
+                            : `Incorrect. Your answer: "${typedGradingResult.normalizedUser}" | Official answer: "${typedGradingResult.normalizedCorrect}"`}
+                        </span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

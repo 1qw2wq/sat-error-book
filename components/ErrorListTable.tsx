@@ -15,21 +15,24 @@ import {
   Clock,
   Tag,
   ImageIcon,
+  Brain,
 } from 'lucide-react';
 import { SATErrorItem, SATSubject, MasteryStatus } from '@/types/sat';
-import { deleteError, importErrorsBatch } from '@/lib/db';
+import { deleteError, exportFullDatabase, importFullDatabase } from '@/lib/db';
 import MathRenderer from './MathRenderer';
 
 interface ErrorListTableProps {
   errors: SATErrorItem[];
   onSelectError: (item: SATErrorItem) => void;
   onRefreshData: () => void;
+  onStartErrorTest?: () => void;
 }
 
 export default function ErrorListTable({
   errors,
   onSelectError,
   onRefreshData,
+  onStartErrorTest,
 }: ErrorListTableProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [subjectFilter, setSubjectFilter] = useState<string>('All');
@@ -79,15 +82,20 @@ export default function ErrorListTable({
     }
   };
 
-  const handleExportJson = () => {
-    const jsonStr = JSON.stringify(errors, null, 2);
-    const blob = new Blob([jsonStr], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `SAT_Error_Book_Backup_${new Date().toISOString().split('T')[0]}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const handleExportJson = async () => {
+    try {
+      const fullBackup = await exportFullDatabase();
+      const jsonStr = JSON.stringify(fullBackup, null, 2);
+      const blob = new Blob([jsonStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `SAT_Error_Book_Full_Backup_${new Date().toISOString().split('T')[0]}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Export error:', err);
+    }
   };
 
   const handleImportJson = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -98,21 +106,23 @@ export default function ErrorListTable({
       const text = await file.text();
       const parsed = JSON.parse(text);
 
-      if (!Array.isArray(parsed)) {
-        setImportStatus('Invalid backup format: file must contain a JSON array of questions.');
-        return;
+      const result = await importFullDatabase(parsed);
+      const totalImported = result.errorsImported + result.vocabImported;
+      if (totalImported === 0) {
+        setImportStatus('No valid SAT error entries or vocabulary words were found in the file.');
+      } else {
+        setImportStatus(
+          `Successfully imported ${result.errorsImported} error(s) and ${result.vocabImported} vocabulary word(s)!`
+        );
+        onRefreshData();
       }
-
-      const importedCount = await importErrorsBatch(parsed);
-      setImportStatus(`Successfully imported ${importedCount} error item(s)!`);
-      onRefreshData();
 
       setTimeout(() => {
         setImportStatus(null);
-      }, 5000);
+      }, 6000);
     } catch (err) {
       console.error('Import error:', err);
-      setImportStatus('Failed to parse backup file. Make sure it is a valid JSON backup.');
+      setImportStatus('Failed to parse backup file. Make sure it is a valid JSON backup file.');
     } finally {
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
@@ -178,6 +188,17 @@ export default function ErrorListTable({
               <Download className="w-3.5 h-3.5 text-blue-500" />
               <span>Export Backup</span>
             </button>
+
+            {onStartErrorTest && (
+              <button
+                type="button"
+                onClick={onStartErrorTest}
+                className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-extrabold shadow-sm transition-transform active:scale-95"
+              >
+                <Brain className="w-4 h-4 text-slate-950" />
+                <span>Practice Test Mode</span>
+              </button>
+            )}
           </div>
         </div>
 

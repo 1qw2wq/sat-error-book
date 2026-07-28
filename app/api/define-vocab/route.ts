@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
     }. Provide a precise, SAT-tailored definition, part of speech, a clear example sentence, 3-5 synonyms, and a helpful tip for SAT test takers.`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.1-flash-lite',
       contents: prompt,
       config: {
         responseMimeType: 'application/json',

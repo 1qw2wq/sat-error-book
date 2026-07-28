@@ -9,6 +9,7 @@ import QuickReviewModal from '@/components/QuickReviewModal';
 import ErrorDetailModal from '@/components/ErrorDetailModal';
 import UploadModal from '@/components/UploadModal';
 import VocabBank from '@/components/VocabBank';
+import ErrorQuizModal from '@/components/ErrorQuizModal';
 import { getAllErrors, getUserStats, getAllVocab } from '@/lib/db';
 import { SATErrorItem, UserStats, VocabItem } from '@/types/sat';
 import { Sparkles, Brain } from 'lucide-react';
@@ -34,8 +35,9 @@ export default function HomePage() {
   const [pastedMime, setPastedMime] = useState<string>('image/png');
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
 
-  // Single error detail modal
+  // Single error detail modal & Error practice quiz modal
   const [selectedItem, setSelectedItem] = useState<SATErrorItem | null>(null);
+  const [isErrorQuizOpen, setIsErrorQuizOpen] = useState(false);
 
   // Review Filter Override from Dashboard quick launch buttons
   const [reviewSubjectFilter, setReviewSubjectFilter] = useState<string>('All');
@@ -139,6 +141,7 @@ export default function HomePage() {
                 errors={errors}
                 stats={stats}
                 onStartReview={handleStartReview}
+                onStartErrorTest={() => setIsErrorQuizOpen(true)}
                 onImageReady={handleImageReady}
                 onImagesReady={handleImagesReady}
               />
@@ -163,6 +166,7 @@ export default function HomePage() {
                 errors={errors}
                 onSelectError={(item) => setSelectedItem(item)}
                 onRefreshData={refreshData}
+                onStartErrorTest={() => setIsErrorQuizOpen(true)}
               />
             )}
           </>
@@ -224,6 +228,15 @@ export default function HomePage() {
             refreshData();
             setSelectedItem(null);
           }}
+        />
+      )}
+
+      {/* Error Practice Test Quiz Modal */}
+      {isErrorQuizOpen && (
+        <ErrorQuizModal
+          errors={errors}
+          onClose={() => setIsErrorQuizOpen(false)}
+          onRefreshData={refreshData}
         />
       )}
     </div>

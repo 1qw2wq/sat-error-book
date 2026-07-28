@@ -23,6 +23,7 @@ interface DashboardProps {
   errors: SATErrorItem[];
   stats: UserStats;
   onStartReview: (subjectFilter?: string, masteryFilter?: string) => void;
+  onStartErrorTest?: () => void;
   onImageReady: (dataUrl: string, mimeType: string) => void;
   onImagesReady?: (dataUrls: string[], mimeType?: string) => void;
 }
@@ -31,6 +32,7 @@ export default function Dashboard({
   errors,
   stats,
   onStartReview,
+  onStartErrorTest,
   onImageReady,
   onImagesReady,
 }: DashboardProps) {
@@ -153,22 +155,39 @@ export default function Dashboard({
         </div>
 
         {/* Quick Launch Card */}
-        <div className="p-5 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-700 text-white shadow-md flex flex-col justify-between">
+        <div className="p-5 rounded-2xl bg-gradient-to-br from-blue-600 via-indigo-700 to-slate-900 text-white shadow-md flex flex-col justify-between space-y-3">
           <div>
-            <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-blue-200 mb-1">
-              <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-              <span>Flashcard Review</span>
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-blue-200">
+                <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                <span>Practice & Active Recall</span>
+              </span>
+              <span className="text-[10px] bg-white/20 px-2 py-0.5 rounded-full font-bold">
+                {dueCount} Due
+              </span>
             </div>
-            <h3 className="text-lg font-bold">Start Spaced Repetition</h3>
+            <h3 className="text-base font-bold mt-1">Review or Test Knowledge</h3>
           </div>
 
-          <button
-            onClick={() => onStartReview('All', 'ConfusedOrDue')}
-            className="mt-3 w-full py-2.5 px-4 rounded-xl bg-white text-blue-700 hover:bg-blue-50 font-extrabold text-sm shadow-xs transition-all flex items-center justify-center gap-2 group"
-          >
-            <span>Launch Review ({dueCount})</span>
-            <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-          </button>
+          <div className="grid grid-cols-1 gap-2 pt-1">
+            <button
+              onClick={() => onStartReview('All', 'ConfusedOrDue')}
+              className="w-full py-2 px-3 rounded-xl bg-white text-blue-700 hover:bg-blue-50 font-extrabold text-xs shadow-xs transition-all flex items-center justify-center gap-2 group"
+            >
+              <span>Flashcard Review</span>
+              <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
+            </button>
+
+            {onStartErrorTest && (
+              <button
+                onClick={onStartErrorTest}
+                className="w-full py-2 px-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-xs shadow-xs transition-all flex items-center justify-center gap-2 group"
+              >
+                <span>Practice Test Mode</span>
+                <Brain className="w-3.5 h-3.5 text-slate-950" />
+              </button>
+            )}
+          </div>
         </div>
       </div>
 

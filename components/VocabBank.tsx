@@ -15,10 +15,14 @@ import {
   ArrowRight,
   RotateCcw,
   Tag,
+  Download,
+  Upload,
+  Trophy,
 } from 'lucide-react';
 import { VocabItem, MasteryStatus } from '@/types/sat';
-import { saveVocab, deleteVocab } from '@/lib/db';
+import { saveVocab, deleteVocab, exportFullDatabase, importFullDatabase } from '@/lib/db';
 import AddVocabModal from './AddVocabModal';
+import VocabQuizModal from './VocabQuizModal';
 
 interface VocabBankProps {
   vocabList: VocabItem[];
@@ -31,10 +35,11 @@ export default function VocabBank({ vocabList, onRefreshVocab }: VocabBankProps)
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<VocabItem | null>(null);
 
-  // Flashcard study mode state
+  // Flashcard study mode & Quiz mode state
   const [isStudyMode, setIsStudyMode] = useState(false);
   const [studyIndex, setStudyIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
+  const [isQuizOpen, setIsQuizOpen] = useState(false);
 
   // Filter items
   const filteredVocab = vocabList.filter((item) => {
@@ -55,6 +60,58 @@ export default function VocabBank({ vocabList, onRefreshVocab }: VocabBankProps)
     onRefreshVocab();
   };
 
+  // Backup state
+  const [importStatus, setImportStatus] = useState<string | null>(null);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const handleExportJson = async () => {
+    try {
+      const fullBackup = await exportFullDatabase();
+      const jsonStr = JSON.stringify(fullBackup, null, 2);
+      const blob = new Blob([jsonStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `SAT_Error_Book_Full_Backup_${new Date().toISOString().split('T')[0]}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Export error:', err);
+    }
+  };
+
+  const handleImportJson = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+
+      const result = await importFullDatabase(parsed);
+      const totalImported = result.errorsImported + result.vocabImported;
+      if (totalImported === 0) {
+        setImportStatus('No valid vocabulary words or SAT error entries were found in the file.');
+      } else {
+        setImportStatus(
+          `Successfully imported ${result.vocabImported} vocabulary word(s) and ${result.errorsImported} error(s)!`
+        );
+        onRefreshVocab();
+      }
+
+      setTimeout(() => {
+        setImportStatus(null);
+      }, 6000);
+    } catch (err) {
+      console.error('Import error:', err);
+      setImportStatus('Failed to parse backup file. Make sure it is a valid JSON backup file.');
+    } finally {
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
   const handleDelete = async (id: string) => {
     if (confirm('Are you sure you want to remove this vocabulary word?')) {
       await deleteVocab(id);
@@ -66,6 +123,27 @@ export default function VocabBank({ vocabList, onRefreshVocab }: VocabBankProps)
 
   return (
     <div className="w-full max-w-6xl mx-auto space-y-6">
+      {/* Hidden file input for import */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleImportJson}
+        accept=".json,application/json"
+        className="hidden"
+      />
+
+      {importStatus && (
+        <div className="p-3 rounded-xl bg-indigo-50 dark:bg-indigo-950/80 border border-indigo-200 dark:border-indigo-800 text-xs font-semibold text-indigo-900 dark:text-indigo-200 flex items-center justify-between">
+          <span>{importStatus}</span>
+          <button
+            onClick={() => setImportStatus(null)}
+            className="text-indigo-500 hover:text-indigo-700 dark:hover:text-indigo-300 font-bold ml-2"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* Top Header Banner */}
       <div className="p-6 rounded-2xl bg-gradient-to-r from-indigo-900 via-slate-900 to-blue-900 text-white shadow-lg flex flex-col md:flex-row items-start md:items-center justify-between gap-4 relative overflow-hidden">
         <div className="space-y-1 relative z-10">
@@ -81,7 +159,36 @@ export default function VocabBank({ vocabList, onRefreshVocab }: VocabBankProps)
           </p>
         </div>
 
-        <div className="flex items-center gap-3 relative z-10 shrink-0">
+        <div className="flex flex-wrap items-center gap-2.5 relative z-10 shrink-0">
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white border border-white/20 text-xs font-semibold transition-colors"
+            title="Import complete JSON backup"
+          >
+            <Upload className="w-3.5 h-3.5 text-emerald-400" />
+            <span className="hidden sm:inline">Import</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleExportJson}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white border border-white/20 text-xs font-semibold transition-colors"
+            title="Export complete JSON backup (Errors + Vocab)"
+          >
+            <Download className="w-3.5 h-3.5 text-blue-400" />
+            <span className="hidden sm:inline">Export</span>
+          </button>
+
+          <button
+            onClick={() => setIsQuizOpen(true)}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold shadow-md transition-transform active:scale-95"
+            title="Launch customizable random vocabulary test"
+          >
+            <Trophy className="w-4 h-4 text-slate-950" />
+            <span>Take Vocab Test</span>
+          </button>
+
           <button
             onClick={() => {
               setIsStudyMode(!isStudyMode);
@@ -435,6 +542,15 @@ export default function VocabBank({ vocabList, onRefreshVocab }: VocabBankProps)
             setEditingItem(null);
             onRefreshVocab();
           }}
+        />
+      )}
+
+      {/* Random Vocabulary Quiz Modal */}
+      {isQuizOpen && (
+        <VocabQuizModal
+          vocabList={vocabList}
+          onClose={() => setIsQuizOpen(false)}
+          onRefreshVocab={onRefreshVocab}
         />
       )}
     </div>

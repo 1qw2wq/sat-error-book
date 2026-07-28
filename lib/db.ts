@@ -509,3 +509,88 @@ export async function deleteVocab(id: string): Promise<void> {
   await db.delete('vocab', id);
 }
 
+export async function importVocabBatch(importedItems: VocabItem[]): Promise<number> {
+  const db = await getDB();
+  const tx = db.transaction('vocab', 'readwrite');
+  let count = 0;
+  for (const item of importedItems) {
+    if (item && item.id && item.word) {
+      await tx.store.put(item);
+      count++;
+    }
+  }
+  await tx.done;
+  return count;
+}
+
+export interface FullDatabaseBackup {
+  version: number;
+  exportedAt: string;
+  errors: SATErrorItem[];
+  vocab: VocabItem[];
+  userStats?: UserStats;
+}
+
+export async function exportFullDatabase(): Promise<FullDatabaseBackup> {
+  const errors = await getAllErrors();
+  const vocab = await getAllVocab();
+  const userStats = await getUserStats();
+
+  return {
+    version: 2,
+    exportedAt: new Date().toISOString(),
+    errors,
+    vocab,
+    userStats,
+  };
+}
+
+export interface ImportResult {
+  errorsImported: number;
+  vocabImported: number;
+}
+
+export async function importFullDatabase(data: any): Promise<ImportResult> {
+  let errorsImported = 0;
+  let vocabImported = 0;
+
+  if (!data) return { errorsImported: 0, vocabImported: 0 };
+
+  // Case 1: Structured backup object with { errors, vocab, userStats }
+  if (typeof data === 'object' && !Array.isArray(data)) {
+    if (Array.isArray(data.errors)) {
+      errorsImported = await importErrorsBatch(data.errors);
+    }
+    if (Array.isArray(data.vocab)) {
+      vocabImported = await importVocabBatch(data.vocab);
+    }
+    if (data.userStats) {
+      const db = await getDB();
+      await db.put('user_stats', data.userStats);
+    }
+  }
+  // Case 2: Array of items (legacy or direct array)
+  else if (Array.isArray(data)) {
+    const errorItems: SATErrorItem[] = [];
+    const vocabItems: VocabItem[] = [];
+
+    for (const item of data) {
+      if (!item) continue;
+      if (item.questionText || item.correctAnswer || item.subject) {
+        errorItems.push(item);
+      } else if (item.word || item.definition) {
+        vocabItems.push(item);
+      }
+    }
+
+    if (errorItems.length > 0) {
+      errorsImported = await importErrorsBatch(errorItems);
+    }
+    if (vocabItems.length > 0) {
+      vocabImported = await importVocabBatch(vocabItems);
+    }
+  }
+
+  return { errorsImported, vocabImported };
+}
+

@@ -1,6 +1,43 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import { NextRequest, NextResponse } from 'next/server';
 
+function cleanMimeType(rawMime?: string): string {
+  if (!rawMime) return 'image/png';
+  let cleaned = rawMime.replace(/^data:/i, '').split(';')[0].trim().toLowerCase();
+  if (cleaned === 'image/jpg') return 'image/jpeg';
+  if (['image/png', 'image/jpeg', 'image/webp', 'image/heic', 'image/heif'].includes(cleaned)) {
+    return cleaned;
+  }
+  return 'image/png';
+}
+
+function extractImageBase64AndMime(input: any, defaultMime = 'image/png'): { data: string; mime: string } | null {
+  if (!input) return null;
+  let rawStr = typeof input === 'string' ? input : input.image || input.dataUrl || input.url || '';
+  let rawMime = typeof input === 'object' ? input.mimeType || defaultMime : defaultMime;
+
+  if (!rawStr || typeof rawStr !== 'string') return null;
+
+  let mime = cleanMimeType(rawMime);
+  let base64 = rawStr.trim();
+
+  if (base64.includes(';base64,')) {
+    const parts = base64.split(';base64,');
+    mime = cleanMimeType(parts[0]);
+    base64 = parts[1];
+  } else if (base64.startsWith('data:')) {
+    const parts = base64.split(',');
+    mime = cleanMimeType(parts[0]);
+    base64 = parts[1] || parts[0];
+  }
+
+  // Strip whitespace and line breaks
+  base64 = base64.replace(/\s+/g, '');
+  if (!base64) return null;
+
+  return { data: base64, mime };
+}
+
 export async function POST(req: NextRequest) {
   try {
     const apiKey = process.env.GEMINI_API_KEY;
@@ -19,35 +56,14 @@ export async function POST(req: NextRequest) {
 
     if (Array.isArray(rawImages) && rawImages.length > 0) {
       for (const imgItem of rawImages) {
-        if (typeof imgItem === 'string') {
-          let cleanBase64 = imgItem;
-          let actualMime = mimeType || 'image/png';
-          if (imgItem.includes(';base64,')) {
-            const parts = imgItem.split(';base64,');
-            actualMime = parts[0].replace('data:', '') || actualMime;
-            cleanBase64 = parts[1];
-          }
-          imageList.push({ data: cleanBase64, mime: actualMime });
-        } else if (imgItem?.image) {
-          let cleanBase64 = imgItem.image;
-          let actualMime = imgItem.mimeType || mimeType || 'image/png';
-          if (cleanBase64.includes(';base64,')) {
-            const parts = cleanBase64.split(';base64,');
-            actualMime = parts[0].replace('data:', '') || actualMime;
-            cleanBase64 = parts[1];
-          }
-          imageList.push({ data: cleanBase64, mime: actualMime });
-        }
+        const extracted = extractImageBase64AndMime(imgItem, mimeType);
+        if (extracted) imageList.push(extracted);
       }
-    } else if (image) {
-      let cleanBase64 = image;
-      let actualMime = mimeType || 'image/png';
-      if (image.includes(';base64,')) {
-        const parts = image.split(';base64,');
-        actualMime = parts[0].replace('data:', '') || actualMime;
-        cleanBase64 = parts[1];
-      }
-      imageList.push({ data: cleanBase64, mime: actualMime });
+    }
+
+    if (imageList.length === 0 && image) {
+      const extracted = extractImageBase64AndMime(image, mimeType);
+      if (extracted) imageList.push(extracted);
     }
 
     if (imageList.length === 0) {
@@ -67,35 +83,40 @@ export async function POST(req: NextRequest) {
     });
 
     const promptText = `
-You are a master Digital SAT OCR & Question Parsing AI tutor powered by Gemini 3.1 Flash Lite.
-You are given ${imageList.length} screenshot(s) of a Digital SAT (College Board Bluebook / Khan Academy / Practice Test) problem.
-If there are multiple screenshots provided, synthesize all information together seamlessly (e.g. passage from image 1, question stem & choices from image 2, or graphs/scratches across images).
+You are a high-precision Digital SAT OCR & Question Analyzer AI tutor powered by Gemini 3.1 Flash Lite.
+Analyze the provided ${imageList.length} screenshot(s) of a Digital SAT (College Board Bluebook / Khan Academy / Practice Test) problem.
 
-Perform advanced high-precision OCR and extract all components:
+CRITICAL INSTRUCTIONS & DIRECTIVES:
+1. SUBJECT CLASSIFICATION: MUST be EXACTLY 'Math' or 'Reading & Writing'.
+   - If the image contains literature, reading passages, poems, grammar questions, vocabulary in context, or paired texts -> SUBJECT MUST BE 'Reading & Writing'.
+   - If the image contains equations, math word problems, geometry diagrams, algebra, or functions -> SUBJECT MUST BE 'Math'.
 
-CRITICAL OCR & SYNTHESIS DIRECTIVES:
-1. Subject Classification: MUST be EXACTLY 'Math' or 'Reading & Writing'.
-2. Sub-topic Classification:
-   - For Math: 'Algebra', 'Advanced Math', 'Problem-Solving & Data Analysis', or 'Geometry & Trigonometry'.
-   - For Reading & Writing: 'Information & Ideas', 'Craft & Structure', 'Expression of Ideas', or 'Standard English Conventions'.
-3. Question Text & Math Formatting: Extract the FULL, un-truncated question stem and passage (if any).
-   - Format ALL mathematical expressions and formulas cleanly using standard LaTeX enclosed in single dollar signs (e.g. $f(x) = 3x^2 - 4x + 12$, $\\frac{a}{b}$, $\\sqrt{x}$, $x \\le 5$, $(2, -1)$).
-   - Retain complete line breaks and passage paragraphs accurately.
-4. Answer Choices: Extract choices A, B, C, D if present with exact option text and LaTeX for math.
-   - If it's a student-produced response (grid-in math question), return an empty array [].
-5. Graph, Chart, Geometry Diagram, or Data Table Detection & Bounding Box:
-   - Carefully inspect the screenshot(s) for ANY visual elements: coordinate graphs, bar charts, line plots, scatterplots, data tables, geometric shapes/diagrams, or Reading & Writing passage charts (e.g. Bedbug Complaints bar chart).
-   - If a graph, table, or visual diagram is visible, set \`graphData.hasGraph = true\`.
-   - CRITICAL: Detect the EXACT bounding box around the visual graph/chart/diagram region (including title, bars/axes, labels, numbers, and legend) in normalized 0..1000 scale: \`box2d: [ymin, xmin, ymax, xmax]\`.
-   - Set \`imageIndex\` to the 0-based index of the screenshot image containing the graph/chart (default 0).
-   - Extract title, equation (e.g. $y = -0.75x + 6$), axis labels, key points, table headers/rows, and a clear 1-2 sentence description in \`graphData.description\`.
-6. Correct Answer:
-   - Identify the single correct answer label ('A', 'B', 'C', 'D' or exact numerical string like '23' or '4/3').
-   - If the screenshot shows correct/incorrect markings or selected answer annotations, utilize them. Otherwise, logically solve it step-by-step to determine the correct answer.
-7. AI Takeaway ('aiTakeaway'): A sharp, 2-sentence active-recall memory rule or shortcut strategy that prevents repeating this mistake.
-8. Detailed Explanation ('explanation'): A step-by-step solution showing why the correct choice is right and where common missteps occur.
-9. Mistake Type ('mistakeTypeHint'): One of 'Careless Error', 'Concept Gap', 'Misread Question', 'Time Pressure', 'Calculation Error', or 'Formula Amnesia'.
-10. Difficulty ('difficulty'): 'Easy', 'Medium', or 'Hard'.
+2. SUB-TOPIC CLASSIFICATION:
+   - For Reading & Writing, pick ONE of: 'Information & Ideas', 'Craft & Structure', 'Expression of Ideas', 'Standard English Conventions'.
+   - For Math, pick ONE of: 'Algebra', 'Advanced Math', 'Problem-Solving & Data Analysis', 'Geometry & Trigonometry'.
+
+3. QUESTION TEXT & PASSAGE EXTRACTION:
+   - Extract the COMPLETE visible text from the screenshot(s) into 'questionText'.
+   - Include any passage, context snippet, poem, or introductory text FIRST, followed by the question prompt.
+   - For mathematical equations or formulas, wrap them cleanly in LaTeX enclosed in single dollar signs (e.g., $f(x) = 3x^2 - 4x + 12$, $\\frac{a}{b}$, $x \\le 5$).
+   - DO NOT LEAVE 'questionText' EMPTY.
+
+4. ANSWER CHOICES:
+   - Extract choices A, B, C, D if present with exact choice text and LaTeX for math formulas.
+   - Set 'label' to 'A', 'B', 'C', 'D' and 'text' to the choice content.
+   - If it is a student-produced response (grid-in math question), return an empty array [].
+
+5. CORRECT ANSWER:
+   - Identify the correct answer label ('A', 'B', 'C', 'D' or numeric grid-in string).
+   - If an option (e.g. C) is highlighted, checked, marked correct, or selected in the screenshot, output that option label.
+
+6. AI TAKEAWAY & EXPLANATION:
+   - 'aiTakeaway': A sharp, 2-sentence active recall rule or strategy for SAT test takers.
+   - 'explanation': A clear, step-by-step solution explaining why the answer is correct.
+
+7. GRAPH, CHART, OR DIAGRAM DETECTION:
+   - Set graphData.hasGraph = true ONLY if a visual coordinate graph, bar chart, scatterplot, geometric diagram, or data table is present in the screenshot.
+   - If present, output box2d as [ymin, xmin, ymax, xmax] in 0..1000 scale around the visual diagram.
 
 ${userNote ? `User context/note: "${userNote}"` : ''}
 `;
@@ -122,92 +143,66 @@ ${userNote ? `User context/note: "${userNote}"` : ''}
           properties: {
             subject: {
               type: Type.STRING,
-              description: "Must be 'Math' or 'Reading & Writing'",
+              enum: ['Math', 'Reading & Writing'],
             },
             subTopic: {
               type: Type.STRING,
-              description: "The specific SAT sub-topic name",
+              description: "Specific SAT sub-topic e.g. Craft & Structure or Algebra",
             },
             questionText: {
               type: Type.STRING,
-              description: "The full question text and passage extracted from screenshots",
+              description: "Full question text including passage, prompt, and math formulas",
             },
             answerChoices: {
               type: Type.ARRAY,
               items: {
                 type: Type.OBJECT,
                 properties: {
-                  label: { type: Type.STRING, description: "Option letter like A, B, C, D" },
-                  text: { type: Type.STRING, description: "Text content of the choice option" },
+                  label: { type: Type.STRING, description: "A, B, C, or D" },
+                  text: { type: Type.STRING, description: "Choice text content" },
                 },
                 required: ['label', 'text'],
               },
             },
             correctAnswer: {
               type: Type.STRING,
-              description: "The correct option letter or numeric value",
+              description: "Correct choice letter or numeric string",
             },
             aiTakeaway: {
               type: Type.STRING,
-              description: "A 2-sentence key takeaway or active recall memory tip",
+              description: "A 2-sentence active recall takeaway rule",
             },
             explanation: {
               type: Type.STRING,
-              description: "Step-by-step explanation of the solution",
+              description: "Step-by-step solution explanation",
             },
             graphData: {
               type: Type.OBJECT,
               properties: {
-                hasGraph: { type: Type.BOOLEAN, description: "True if graph, chart, table, or diagram is present" },
-                graphType: {
-                  type: Type.STRING,
-                  description: "linear, quadratic, scatterplot, barchart, table, geometry, diagram, or other",
-                },
-                title: { type: Type.STRING, description: "Title of graph or table" },
-                xAxisLabel: { type: Type.STRING, description: "Label of horizontal axis" },
-                yAxisLabel: { type: Type.STRING, description: "Label of vertical axis" },
-                equation: { type: Type.STRING, description: "Mathematical equation of the function shown e.g. y = -0.75x + 6" },
-                points: {
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      x: { type: Type.NUMBER },
-                      y: { type: Type.NUMBER },
-                      label: { type: Type.STRING },
-                    },
-                    required: ['x', 'y'],
-                  },
-                },
-                tableData: {
-                  type: Type.OBJECT,
-                  properties: {
-                    headers: { type: Type.ARRAY, items: { type: Type.STRING } },
-                    rows: {
-                      type: Type.ARRAY,
-                      items: { type: Type.ARRAY, items: { type: Type.STRING } },
-                    },
-                  },
-                },
-                description: { type: Type.STRING, description: "Detailed description of visual graph or diagram" },
-                imageIndex: { type: Type.INTEGER, description: "0-based index of screenshot containing graph" },
+                hasGraph: { type: Type.BOOLEAN },
+                graphType: { type: Type.STRING },
+                title: { type: Type.STRING },
+                xAxisLabel: { type: Type.STRING },
+                yAxisLabel: { type: Type.STRING },
+                equation: { type: Type.STRING },
+                description: { type: Type.STRING },
+                imageIndex: { type: Type.INTEGER },
                 box2d: {
                   type: Type.ARRAY,
                   items: { type: Type.INTEGER },
-                  description: "Bounding box [ymin, xmin, ymax, xmax] normalized to 0..1000 scale around graph/chart",
                 },
               },
             },
             mistakeTypeHint: {
               type: Type.STRING,
-              description: "Suggested mistake category",
+              enum: ['Careless Error', 'Concept Gap', 'Misread Question', 'Time Pressure', 'Calculation Error', 'Formula Amnesia'],
             },
             difficulty: {
               type: Type.STRING,
-              description: "Easy, Medium, or Hard",
+              enum: ['Easy', 'Medium', 'Hard'],
             },
           },
-          required: ['subject', 'subTopic', 'questionText', 'correctAnswer', 'aiTakeaway', 'explanation'],
+          required: ['subject', 'subTopic', 'questionText', 'correctAnswer', 'aiTakeaway', 'explanation', 'answerChoices'],
         },
       },
     });
