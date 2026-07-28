@@ -26,7 +26,7 @@ export default function GraphRenderer({
     let isMounted = true;
 
     async function generateCrop() {
-      if (!graphData || !graphData.hasGraph || graphData.croppedGraphUrl) {
+      if (graphData?.croppedGraphUrl) {
         setDynamicCropUrl(null);
         return;
       }
@@ -34,12 +34,12 @@ export default function GraphRenderer({
       // Pick source screenshot
       let sourceImg = imageDataUrl;
       if (!sourceImg && imageDataUrls && imageDataUrls.length > 0) {
-        const idx = graphData.imageIndex || 0;
+        const idx = graphData?.imageIndex || 0;
         sourceImg = imageDataUrls[idx] || imageDataUrls[0];
       }
 
       if (sourceImg) {
-        const box = graphData.box2d || [0, 0, 550, 1000];
+        const box = graphData?.box2d || [0, 0, 550, 1000];
         try {
           const cropped = await cropImageBoundingBox(sourceImg, box);
           if (isMounted) {
@@ -60,10 +60,27 @@ export default function GraphRenderer({
     };
   }, [graphData, imageDataUrl, imageDataUrls]);
 
-  if (!graphData || !graphData.hasGraph) return null;
+  // Determine if a valid graph exists for this question
+  const hasValidGraph =
+    graphData &&
+    (graphData.hasGraph === true ||
+      !!graphData.croppedGraphUrl ||
+      !!graphData.graphType ||
+      !!graphData.equation ||
+      (graphData.points && graphData.points.length > 0) ||
+      (graphData.tableData?.rows && graphData.tableData.rows.length > 0));
 
-  const { graphType, title, xAxisLabel, yAxisLabel, equation, points, tableData, description } = graphData;
-  const activeCroppedUrl = graphData.croppedGraphUrl || dynamicCropUrl;
+  if (!hasValidGraph) return null;
+
+  const graphType = graphData?.graphType;
+  const title = graphData?.title;
+  const xAxisLabel = graphData?.xAxisLabel;
+  const yAxisLabel = graphData?.yAxisLabel;
+  const equation = graphData?.equation;
+  const points = graphData?.points;
+  const tableData = graphData?.tableData;
+  const description = graphData?.description;
+  const activeCroppedUrl = graphData?.croppedGraphUrl || dynamicCropUrl;
 
   // PRIORITY 1: Render Cropped Graph snippet cut directly from the screenshot if available
   if (activeCroppedUrl) {

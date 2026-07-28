@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   X,
   Sparkles,
@@ -18,6 +18,7 @@ import {
 import { VocabItem, MasteryStatus } from '@/types/sat';
 import { saveVocab } from '@/lib/db';
 import MathRenderer from './MathRenderer';
+import BluebookTestShell, { BluebookQuestionItem } from './BluebookTestShell';
 
 interface VocabQuizModalProps {
   vocabList: VocabItem[];
@@ -145,28 +146,84 @@ export default function VocabQuizModal({
     }
   };
 
-  // Timer Countdown Effect
-  useEffect(() => {
-    if (stage !== 'testing' || timerSecondsPerQ === 0 || isAnswered) return;
+  // Map questions to BluebookQuestionItem format
+  const bluebookVocabQuestions: BluebookQuestionItem[] = questions.map((q, idx) => {
+    let passage: string | undefined = undefined;
 
-    timerRef.current = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev <= 1) {
-          clearInterval(timerRef.current!);
-          handleAnswerSubmit('(Time Expired)');
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
+    if (q.direction === 'wordToDef') {
+      if (q.wordItem.exampleSentence) {
+        passage = `### Context Sentence\n\n> "${q.wordItem.exampleSentence}"`;
+      }
+    } else {
+      // defToWord direction: replace occurrences of the target word in the example sentence so the answer is not revealed
+      if (q.wordItem.exampleSentence) {
+        const escapedWord = q.wordItem.word.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+        const sanitizedSentence = q.wordItem.exampleSentence.replace(
+          new RegExp(escapedWord, 'gi'),
+          '________'
+        );
+        passage = `### Context Sentence\n\n> "${sanitizedSentence}"`;
+      }
+    }
 
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
+    return {
+      id: q.id || `${idx}`,
+      number: idx + 1,
+      passageText: passage,
+      questionPrompt:
+        q.direction === 'wordToDef'
+          ? `Which choice completes the text or defines the vocabulary word **"${q.promptText}"**?`
+          : `Which vocabulary word corresponds to the definition:\n\n*"${q.promptText}"*?`,
+      choices: q.choices,
+      correctAnswer: q.correctAnswerText,
+      isGridIn: format === 'typed',
+      subject: 'Reading & Writing',
+      subTopic: 'Vocabulary in Context',
     };
-  }, [stage, currentIndex, isAnswered, timerSecondsPerQ]);
+  });
+
+  const handleBluebookVocabFinish = ({
+    answers,
+  }: {
+    answers: Record<number, string>;
+    markedForReview: Record<number, boolean>;
+    timeSpentSeconds: number;
+  }) => {
+    const newLog = questions.map((q, idx) => {
+      const rawGiven = answers[idx] || '';
+      let userAnswerText = rawGiven;
+
+      const choiceIdx = ['A', 'B', 'C', 'D'].indexOf(rawGiven.toUpperCase());
+      if (choiceIdx !== -1 && q.choices && q.choices[choiceIdx]) {
+        userAnswerText = q.choices[choiceIdx];
+      }
+
+      const isCorrect =
+        userAnswerText.trim().toLowerCase() === q.correctAnswerText.trim().toLowerCase();
+
+      if (isCorrect) {
+        const newStatus = q.wordItem.masteryStatus === 'Confused' ? 'Learning' : 'Mastered';
+        saveVocab({
+          ...q.wordItem,
+          masteryStatus: newStatus,
+          nextReviewDate: new Date(Date.now() + 86400000 * 3).toISOString(),
+        });
+      }
+
+      return {
+        question: q,
+        userAnswer: userAnswerText,
+        isCorrect,
+      };
+    });
+
+    setAnswersLog(newLog);
+    onRefreshVocab();
+    setStage('results');
+  };
 
   // Answer handler
-  const handleAnswerSubmit = (givenAnswer: string) => {
+  const handleAnswerSubmit = useCallback((givenAnswer: string) => {
     if (isAnswered) return;
 
     const currentQ = questions[currentIndex];
@@ -190,7 +247,27 @@ export default function VocabQuizModal({
         isCorrect,
       },
     ]);
-  };
+  }, [currentIndex, isAnswered, questions]);
+
+  // Timer Countdown Effect
+  useEffect(() => {
+    if (stage !== 'testing' || timerSecondsPerQ === 0 || isAnswered) return;
+
+    timerRef.current = setInterval(() => {
+      setTimeLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(timerRef.current!);
+          handleAnswerSubmit('(Time Expired)');
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [stage, currentIndex, isAnswered, timerSecondsPerQ, handleAnswerSubmit]);
 
   const handleNextQuestion = () => {
     if (currentIndex + 1 < questions.length) {
@@ -384,177 +461,17 @@ export default function VocabQuizModal({
             </div>
           )}
 
-          {/* STAGE 2: ACTIVE TESTING */}
-          {stage === 'testing' && questions[currentIndex] && (
-            <div className="space-y-6">
-              {/* Question Bar Header */}
-              <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
-                <span>
-                  Question {currentIndex + 1} of {questions.length}
-                </span>
-                <div className="flex items-center gap-3">
-                  {timerSecondsPerQ > 0 && (
-                    <span
-                      className={`flex items-center gap-1 font-mono font-bold ${
-                        timeLeft <= 5 ? 'text-rose-500 animate-pulse' : 'text-amber-500'
-                      }`}
-                    >
-                      <Clock className="w-3.5 h-3.5" />
-                      {timeLeft}s left
-                    </span>
-                  )}
-                  <span className="text-indigo-600 dark:text-indigo-400 font-bold">
-                    Score: {answersLog.filter((a) => a.isCorrect).length} / {answersLog.length}
-                  </span>
-                </div>
-              </div>
-
-              {/* Progress Line */}
-              <div className="w-full h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-indigo-600 transition-all duration-300"
-                  style={{
-                    width: `${((currentIndex + 1) / questions.length) * 100}%`,
-                  }}
-                />
-              </div>
-
-              {/* Question Card */}
-              <div className="p-6 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-4">
-                <div className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-widest">
-                  {questions[currentIndex].direction === 'wordToDef'
-                    ? 'Target Vocabulary Word'
-                    : 'Target Vocabulary Definition'}
-                </div>
-
-                <div className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white leading-snug">
-                  {questions[currentIndex].promptText}
-                </div>
-
-                {questions[currentIndex].wordItem.partOfSpeech && (
-                  <span className="inline-block px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 italic">
-                    {questions[currentIndex].wordItem.partOfSpeech}
-                  </span>
-                )}
-              </div>
-
-              {/* Answer Choices (Choice Mode) */}
-              {format === 'choice' && questions[currentIndex].choices && (
-                <div className="space-y-2.5">
-                  {questions[currentIndex].choices!.map((choice, idx) => {
-                    const isCorrectChoice =
-                      choice === questions[currentIndex].correctAnswerText;
-                    const isUserChoice = selectedAnswer === choice;
-
-                    let choiceStyle =
-                      'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 hover:border-indigo-400';
-
-                    if (isAnswered) {
-                      if (isCorrectChoice) {
-                        choiceStyle =
-                          'bg-emerald-50 dark:bg-emerald-950/80 border-emerald-500 text-emerald-900 dark:text-emerald-200 font-bold';
-                      } else if (isUserChoice) {
-                        choiceStyle =
-                          'bg-rose-50 dark:bg-rose-950/80 border-rose-500 text-rose-900 dark:text-rose-200 opacity-80 line-through';
-                      }
-                    }
-
-                    return (
-                      <button
-                        key={idx}
-                        type="button"
-                        onClick={() => handleAnswerSubmit(choice)}
-                        disabled={isAnswered}
-                        className={`w-full p-4 rounded-xl border text-left text-xs sm:text-sm transition-all flex items-start gap-3 ${choiceStyle}`}
-                      >
-                        <span className="w-6 h-6 rounded-lg bg-slate-100 dark:bg-slate-900 flex items-center justify-center font-bold text-xs shrink-0 border border-slate-200 dark:border-slate-700">
-                          {String.fromCharCode(65 + idx)}
-                        </span>
-                        <span className="flex-1 mt-0.5 leading-relaxed">{choice}</span>
-                        {isAnswered && isCorrectChoice && (
-                          <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
-                        )}
-                        {isAnswered && isUserChoice && !isCorrectChoice && (
-                          <XCircle className="w-5 h-5 text-rose-500 shrink-0" />
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* Typed Answer Mode */}
-              {format === 'typed' && (
-                <div className="space-y-3">
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={typedAnswer}
-                      onChange={(e) => setTypedAnswer(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') handleAnswerSubmit(typedAnswer);
-                      }}
-                      placeholder="Type your response or key definition here..."
-                      disabled={isAnswered}
-                      className="flex-1 p-3 text-sm rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    />
-                    {!isAnswered && (
-                      <button
-                        type="button"
-                        onClick={() => handleAnswerSubmit(typedAnswer)}
-                        className="px-5 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shrink-0"
-                      >
-                        Submit
-                      </button>
-                    )}
-                  </div>
-
-                  {isAnswered && (
-                    <div className="p-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs text-slate-700 dark:text-slate-300 space-y-1">
-                      <div className="font-bold text-indigo-600 dark:text-indigo-400">
-                        Official Answer:
-                      </div>
-                      <div>{questions[currentIndex].correctAnswerText}</div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Example Context / SAT Tip preview if answered */}
-              {isAnswered && (
-                <div className="p-4 rounded-xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-900/40 text-xs text-amber-900 dark:text-amber-200 space-y-1 animate-in fade-in duration-200">
-                  <div className="font-bold flex items-center gap-1.5 text-amber-800 dark:text-amber-300">
-                    <Sparkles className="w-3.5 h-3.5" /> Context & SAT Usage:
-                  </div>
-                  {questions[currentIndex].wordItem.exampleSentence && (
-                    <div className="italic">
-                      &quot;{questions[currentIndex].wordItem.exampleSentence}&quot;
-                    </div>
-                  )}
-                  {questions[currentIndex].wordItem.satTip && (
-                    <div className="font-medium pt-1">
-                      💡 Tip: {questions[currentIndex].wordItem.satTip}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Next Question Button */}
-              {isAnswered && (
-                <div className="pt-2 flex justify-end">
-                  <button
-                    type="button"
-                    onClick={handleNextQuestion}
-                    className="px-6 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs flex items-center gap-2 shadow-md transition-transform active:scale-95"
-                  >
-                    <span>
-                      {currentIndex + 1 < questions.length ? 'Next Question' : 'See Results'}
-                    </span>
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
-                </div>
-              )}
-            </div>
+          {/* STAGE 2: ACTIVE TESTING (BLUEBOOK FULLSCREEN) */}
+          {stage === 'testing' && (
+            <BluebookTestShell
+              title="Vocabulary Drill"
+              sectionName="Reading & Writing • Vocabulary in Context"
+              questions={bluebookVocabQuestions}
+              timerSeconds={timerSecondsPerQ > 0 ? timerSecondsPerQ * questions.length : 0}
+              instantFeedback={false}
+              onFinishTest={handleBluebookVocabFinish}
+              onClose={onClose}
+            />
           )}
 
           {/* STAGE 3: RESULTS SUMMARY */}

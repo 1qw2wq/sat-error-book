@@ -55,6 +55,7 @@ export interface SATErrorItem {
   createdAt: string; // ISO date string
   subject: SATSubject;
   subTopic: string;
+  passageText?: string;
   questionText: string;
   answerChoices: AnswerChoice[];
   correctAnswer: string; // "A", "B", "C", "D" or exact number value
@@ -96,6 +97,7 @@ export interface VocabItem {
   sourceContext?: string;
   createdAt: string; // ISO date
   masteryStatus?: MasteryStatus;
+  nextReviewDate?: string;
 }
 
 export interface DefineVocabResponse {
