@@ -19,46 +19,70 @@ export interface HighlightItem {
 export function highlightTextNodes(text: string, highlights?: HighlightItem[]): React.ReactNode {
   if (!text || !highlights || highlights.length === 0) return text;
 
-  const validHighlights = highlights.filter(
-    (h) => h.selectedText && h.selectedText.trim().length > 0 && text.includes(h.selectedText)
-  );
+  // Normalize string for fuzzy/whitespace-insensitive lookup
+  const normalize = (str: string) => str.replace(/\s+/g, ' ').trim();
+
+  // Find highlights that overlap or match the text
+  const validHighlights = highlights.filter((h) => {
+    if (!h.selectedText) return false;
+    const cleanSel = normalize(h.selectedText);
+    if (!cleanSel) return false;
+    const cleanText = normalize(text);
+    return cleanText.toLowerCase().includes(cleanSel.toLowerCase()) || text.toLowerCase().includes(h.selectedText.toLowerCase());
+  });
+
   if (validHighlights.length === 0) return text;
 
+  // Sort by length descending to match longer phrases first
   const sorted = [...validHighlights].sort((a, b) => b.selectedText.length - a.selectedText.length);
-  const pattern = sorted
-    .map((h) => h.selectedText.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'))
-    .join('|');
 
+  // Build pattern using regex escaping for each highlight string
+  const patternParts = sorted.map((h) => {
+    const escaped = h.selectedText.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+    // Allow flexible whitespace in match if user selected across line breaks or spaces
+    return escaped.replace(/\\\s+/g, '\\s+');
+  });
+
+  const pattern = patternParts.join('|');
   if (!pattern) return text;
 
-  const regex = new RegExp(`(${pattern})`, 'g');
-  const parts = text.split(regex);
+  try {
+    const regex = new RegExp(`(${pattern})`, 'gi');
+    const parts = text.split(regex);
 
-  return parts.map((part, idx) => {
-    const match = sorted.find((h) => h.selectedText === part);
-    if (match) {
-      const color = match.color || 'yellow';
-      let styleClass = 'bg-amber-200/90 text-amber-950 border-b-2 border-amber-400 font-medium px-0.5 rounded-2xs';
-      if (color === 'blue') {
-        styleClass = 'bg-sky-200/90 text-sky-950 border-b-2 border-sky-400 font-medium px-0.5 rounded-2xs';
-      } else if (color === 'pink') {
-        styleClass = 'bg-pink-200/90 text-pink-950 border-b-2 border-pink-400 font-medium px-0.5 rounded-2xs';
-      } else if (color === 'underline') {
-        styleClass = 'underline decoration-2 decoration-blue-600 underline-offset-4 font-semibold text-slate-900';
+    return parts.map((part, idx) => {
+      const cleanPart = normalize(part).toLowerCase();
+      const match = sorted.find((h) => {
+        const cleanSel = normalize(h.selectedText).toLowerCase();
+        return cleanSel === cleanPart || h.selectedText.toLowerCase() === part.toLowerCase();
+      });
+
+      if (match) {
+        const color = match.color || 'yellow';
+        let styleClass = 'bg-amber-200/90 text-amber-950 border-b-2 border-amber-400 font-medium px-0.5 rounded-2xs';
+        if (color === 'blue') {
+          styleClass = 'bg-sky-200/90 text-sky-950 border-b-2 border-sky-400 font-medium px-0.5 rounded-2xs';
+        } else if (color === 'pink') {
+          styleClass = 'bg-pink-200/90 text-pink-950 border-b-2 border-pink-400 font-medium px-0.5 rounded-2xs';
+        } else if (color === 'underline') {
+          styleClass = 'underline decoration-2 decoration-blue-600 underline-offset-4 font-semibold text-slate-900';
+        }
+
+        return (
+          <mark
+            key={idx}
+            className={`${styleClass} transition-all hover:brightness-95 cursor-pointer`}
+            title={match.noteText ? `Note: ${match.noteText}` : match.selectedText}
+          >
+            {part}
+          </mark>
+        );
       }
-
-      return (
-        <mark
-          key={idx}
-          className={`${styleClass} transition-all hover:brightness-95 cursor-pointer`}
-          title={match.noteText ? `Note: ${match.noteText}` : match.selectedText}
-        >
-          {part}
-        </mark>
-      );
-    }
-    return part;
-  });
+      return part;
+    });
+  } catch {
+    return text;
+  }
 }
 
 /**

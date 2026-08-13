@@ -158,7 +158,7 @@ export default function ErrorQuizModal({
     return {
       id: err.id,
       number: idx + 1,
-      passageText: err.passageText,
+      passageText: err.passageText?.trim() ? err.passageText.trim() : undefined,
       questionPrompt: err.questionText,
       choices,
       correctAnswer: err.correctAnswer,

@@ -469,6 +469,7 @@ export default function VocabQuizModal({
               questions={bluebookVocabQuestions}
               timerSeconds={timerSecondsPerQ > 0 ? timerSecondsPerQ * questions.length : 0}
               instantFeedback={false}
+              disableHighlighting={true}
               onFinishTest={handleBluebookVocabFinish}
               onClose={onClose}
             />

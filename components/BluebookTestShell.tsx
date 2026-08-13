@@ -17,10 +17,12 @@ import {
   Clock,
   Calculator,
   FilePlus,
+  Columns,
 } from 'lucide-react';
 import MathRenderer from './MathRenderer';
 import GraphRenderer from './GraphRenderer';
 import MarkdownRenderer from './MarkdownRenderer';
+import { gradeStudentResponse } from '../lib/answerGrading';
 
 export interface BluebookQuestionItem {
   id: string;
@@ -53,6 +55,7 @@ interface BluebookTestShellProps {
   questions: BluebookQuestionItem[];
   timerSeconds?: number;
   instantFeedback?: boolean;
+  disableHighlighting?: boolean;
   onFinishTest: (results: {
     answers: Record<number, string>;
     markedForReview: Record<number, boolean>;
@@ -67,11 +70,13 @@ export default function BluebookTestShell({
   questions,
   timerSeconds = 0,
   instantFeedback = false,
+  disableHighlighting = false,
   onFinishTest,
   onClose,
 }: BluebookTestShellProps) {
   const [currentIndex, setCurrentIndex] = useState<number>(0);
   const [answers, setAnswers] = useState<Record<number, string>>({});
+  const [checkedQuestions, setCheckedQuestions] = useState<Record<number, boolean>>({});
   const [markedForReview, setMarkedForReview] = useState<Record<number, boolean>>({});
   const [eliminated, setEliminated] = useState<Record<number, Record<number, boolean>>>({});
   const [isEliminatorActive, setIsEliminatorActive] = useState<boolean>(false);
@@ -83,11 +88,13 @@ export default function BluebookTestShell({
   const [pendingSelection, setPendingSelection] = useState<string>('');
   const [selectionPos, setSelectionPos] = useState<{ top: number; left: number } | null>(null);
   const [showNoteInputInToolbar, setShowNoteInputInToolbar] = useState<boolean>(false);
+  const [isHighlightingDisabled, setIsHighlightingDisabled] = useState<boolean>(disableHighlighting);
 
   // UI Panels
   const [showQuestionNav, setShowQuestionNav] = useState<boolean>(false);
   const [showFormulaSheet, setShowFormulaSheet] = useState<boolean>(false);
   const [showCalculator, setShowCalculator] = useState<boolean>(false);
+  const [isLeftCollapsed, setIsLeftCollapsed] = useState<boolean>(false);
   const [isExpandedLeft, setIsExpandedLeft] = useState<boolean>(false);
 
   // Timer
@@ -126,6 +133,7 @@ export default function BluebookTestShell({
 
   // Listen for text selection in passage or question
   const handleTextSelect = () => {
+    if (disableHighlighting || isHighlightingDisabled) return;
     const selection = window.getSelection();
     if (selection && selection.toString().trim().length > 0) {
       const selectedStr = selection.toString().trim();
@@ -172,8 +180,37 @@ export default function BluebookTestShell({
     setHighlights((prev) => prev.filter((h) => h.id !== id));
   };
 
+  // Check if current question is locked/checked in instant feedback mode
+  const isChecked = Boolean(instantFeedback && checkedQuestions[currentIndex]);
+
+  // Check if answer is correct
+  const checkIsCorrect = useCallback((userAns?: string, officialAns?: string, choices?: string[]): boolean => {
+    if (!userAns || !officialAns) return false;
+    const gradeRes = gradeStudentResponse(userAns, officialAns);
+    if (gradeRes.isCorrect) return true;
+
+    if (choices && choices.length > 0) {
+      const choiceLabels = ['A', 'B', 'C', 'D'];
+      const uUpper = userAns.trim().toUpperCase();
+      const oUpper = officialAns.trim().toUpperCase();
+
+      const uIdx = choiceLabels.indexOf(uUpper);
+      if (uIdx >= 0 && choices[uIdx]) {
+        if (gradeStudentResponse(choices[uIdx], officialAns).isCorrect) return true;
+      }
+
+      const oIdx = choiceLabels.indexOf(oUpper);
+      if (oIdx >= 0 && choices[oIdx]) {
+        if (gradeStudentResponse(userAns, choices[oIdx]).isCorrect) return true;
+      }
+    }
+
+    return false;
+  }, []);
+
   // Option Elimination Toggle
   const toggleEliminateChoice = (qIdx: number, choiceIdx: number) => {
+    if (instantFeedback && checkedQuestions[qIdx]) return;
     setEliminated((prev) => {
       const qElim = prev[qIdx] || {};
       return {
@@ -188,6 +225,7 @@ export default function BluebookTestShell({
 
   // Select Answer Choice
   const handleSelectAnswer = (choiceLabel: string) => {
+    if (isChecked) return; // Answer locked after checking in instant feedback mode!
     setAnswers((prev) => ({
       ...prev,
       [currentIndex]: choiceLabel,
@@ -293,11 +331,55 @@ export default function BluebookTestShell({
 
       {/* ================= MAIN TEST CONTENT ================= */}
       {(() => {
-        const hasLeftPane = Boolean(
-          currentQ.passageText ||
-          (currentQ.graphData && (currentQ.graphData.hasGraph || currentQ.graphData.croppedGraphUrl || currentQ.graphData.graphType)) ||
-          currentQ.imageDataUrl
+        const isNonEmptyText = (str?: string) => {
+          if (!str) return false;
+          const trimmed = str.trim().toLowerCase();
+          return (
+            trimmed.length > 0 &&
+            trimmed !== 'none' &&
+            trimmed !== 'none.' &&
+            trimmed !== 'n/a' &&
+            trimmed !== 'null' &&
+            trimmed !== 'undefined' &&
+            trimmed !== 'no passage' &&
+            trimmed !== 'no passage provided.' &&
+            trimmed !== 'no passage.' &&
+            trimmed !== 'no reading passage needed.' &&
+            trimmed !== 'no reading passage.' &&
+            trimmed !== 'context sentence' &&
+            trimmed !== '### context sentence'
+          );
+        };
+
+        const normalizeForComparison = (str?: string) => {
+          if (!str) return '';
+          return str
+            .toLowerCase()
+            .replace(/[’'“”"]/g, '')
+            .replace(/[^a-z0-9]/g, '');
+        };
+
+        const hasGraph = Boolean(
+          currentQ.graphData &&
+            (currentQ.graphData.hasGraph ||
+              (currentQ.graphData.croppedGraphUrl && currentQ.graphData.croppedGraphUrl.trim().length > 0) ||
+              (currentQ.graphData.graphType &&
+                currentQ.graphData.graphType !== 'none' &&
+                currentQ.graphData.graphType.trim().length > 0))
         );
+
+        const hasPassage = isNonEmptyText(currentQ.passageText);
+
+        const normPassage = normalizeForComparison(currentQ.passageText);
+        const normPrompt = normalizeForComparison(currentQ.questionPrompt);
+
+        const passageMatchesPrompt =
+          hasPassage &&
+          normPassage.length > 0 &&
+          normPrompt.length > 0 &&
+          (normPassage === normPrompt || normPrompt.includes(normPassage) || normPassage.includes(normPrompt));
+
+        const hasLeftPane = (hasPassage && !passageMatchesPrompt) || hasGraph;
 
         const questionStemJsx = (
           <div className="space-y-6">
@@ -349,19 +431,54 @@ export default function BluebookTestShell({
                 {currentQ.choices.map((choiceText, cIdx) => {
                   const label = choiceLabels[cIdx] || `${cIdx + 1}`;
                   const isSelected = currentAnswer === label || currentAnswer === choiceText;
-                  const isChoiceEliminated = !!qEliminated[cIdx];
+                  const isChoiceEliminated = !isChecked && !!qEliminated[cIdx];
+
+                  const officialClean = currentQ.correctAnswer || '';
+                  const isOfficialCorrect =
+                    checkIsCorrect(label, officialClean, currentQ.choices) ||
+                    checkIsCorrect(choiceText, officialClean, currentQ.choices);
+
+                  let cardStyles = 'border-slate-200 hover:border-slate-300 bg-white cursor-pointer';
+                  let badgeStyles = 'border-slate-300 text-slate-800 bg-white';
+                  let badgeContent: React.ReactNode = label;
+                  let statusTag: React.ReactNode = null;
+
+                  if (isChecked) {
+                    if (isOfficialCorrect) {
+                      cardStyles = 'border-emerald-500 bg-emerald-50/90 shadow-2xs font-medium cursor-not-allowed ring-1 ring-emerald-400';
+                      badgeStyles = 'border-emerald-600 bg-emerald-600 text-white font-extrabold';
+                      badgeContent = <Check className="w-4 h-4 text-white stroke-[3]" />;
+                      statusTag = (
+                        <span className="ml-auto text-xs font-bold text-emerald-800 bg-emerald-100/90 border border-emerald-300 px-2.5 py-1 rounded-full shrink-0 flex items-center gap-1">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Correct Choice
+                        </span>
+                      );
+                    } else if (isSelected && !isOfficialCorrect) {
+                      cardStyles = 'border-rose-500 bg-rose-50/90 shadow-2xs cursor-not-allowed ring-1 ring-rose-400';
+                      badgeStyles = 'border-rose-600 bg-rose-600 text-white font-extrabold';
+                      badgeContent = <X className="w-4 h-4 text-white stroke-[3]" />;
+                      statusTag = (
+                        <span className="ml-auto text-xs font-bold text-rose-800 bg-rose-100/90 border border-rose-300 px-2.5 py-1 rounded-full shrink-0 flex items-center gap-1">
+                          <XCircle className="w-3.5 h-3.5 text-rose-600" /> Your Answer
+                        </span>
+                      );
+                    } else {
+                      cardStyles = 'border-slate-200 bg-slate-50/50 opacity-45 cursor-not-allowed';
+                      badgeStyles = 'border-slate-200 text-slate-400 bg-slate-100';
+                    }
+                  } else if (isSelected) {
+                    cardStyles = 'border-blue-600 bg-blue-50/50 shadow-2xs cursor-pointer';
+                    badgeStyles = 'border-blue-600 bg-blue-600 text-white';
+                  } else if (isChoiceEliminated) {
+                    cardStyles = 'border-slate-200 bg-slate-50 opacity-40 cursor-pointer';
+                  }
 
                   return (
                     <div
                       key={cIdx}
-                      className={`group relative flex items-start gap-3 p-4 rounded-2xl border-2 transition-all cursor-pointer ${
-                        isSelected
-                          ? 'border-blue-600 bg-blue-50/50 shadow-2xs'
-                          : isChoiceEliminated
-                          ? 'border-slate-200 bg-slate-50 opacity-40'
-                          : 'border-slate-200 hover:border-slate-300 bg-white'
-                      }`}
+                      className={`group relative flex items-start gap-3 p-4 rounded-2xl border-2 transition-all ${cardStyles}`}
                       onClick={() => {
+                        if (isChecked) return;
                         if (isEliminatorActive) {
                           toggleEliminateChoice(currentIndex, cIdx);
                         } else {
@@ -370,39 +487,34 @@ export default function BluebookTestShell({
                       }}
                     >
                       {/* Option Badge Circle */}
-                      <div
-                        className={`w-7 h-7 rounded-full border-2 text-xs font-bold flex items-center justify-center shrink-0 transition-colors mt-0.5 ${
-                          isSelected
-                            ? 'border-blue-600 bg-blue-600 text-white'
-                            : 'border-slate-300 text-slate-800 bg-white'
-                        }`}
-                      >
-                        {label}
+                      <div className={`w-7 h-7 rounded-full border-2 text-xs font-bold flex items-center justify-center shrink-0 transition-colors mt-0.5 ${badgeStyles}`}>
+                        {badgeContent}
                       </div>
 
                       {/* Option Text */}
-                      <div
-                        className={`flex-1 text-sm md:text-base font-serif text-black leading-snug pt-0.5 ${
-                          isChoiceEliminated ? 'line-through text-slate-400' : ''
-                        }`}
-                      >
+                      <div className={`flex-1 text-sm md:text-base font-serif text-black leading-snug pt-0.5 ${isChoiceEliminated ? 'line-through text-slate-400' : ''}`}>
                         <MarkdownRenderer content={choiceText} highlights={currentQuestionHighlights} />
                       </div>
 
+                      {/* Right Status Tag */}
+                      {statusTag}
+
                       {/* Manual Strikethrough Button on right edge */}
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleEliminateChoice(currentIndex, cIdx);
-                        }}
-                        className={`p-1 rounded hover:bg-slate-200 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity text-xs font-mono font-extrabold ${
-                          isChoiceEliminated ? 'opacity-100 text-rose-600' : ''
-                        }`}
-                        title="Eliminate choice"
-                      >
-                        <span className="line-through">ABC</span>
-                      </button>
+                      {!isChecked && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleEliminateChoice(currentIndex, cIdx);
+                          }}
+                          className={`p-1 rounded hover:bg-slate-200 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity text-xs font-mono font-extrabold ${
+                            isChoiceEliminated ? 'opacity-100 text-rose-600' : ''
+                          }`}
+                          title="Eliminate choice"
+                        >
+                          <span className="line-through">ABC</span>
+                        </button>
+                      )}
                     </div>
                   );
                 })}
@@ -411,49 +523,83 @@ export default function BluebookTestShell({
 
             {/* Grid-in Student Produced Response */}
             {(!currentQ.choices || currentQ.choices.length === 0) && (
-              <div className="space-y-3 p-4 rounded-2xl border border-slate-200 bg-slate-50">
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                  Student-Produced Response
-                </label>
+              <div className={`space-y-3 p-4 rounded-2xl border transition-colors ${
+                isChecked
+                  ? checkIsCorrect(currentAnswer, currentQ.correctAnswer)
+                    ? 'border-emerald-300 bg-emerald-50/70'
+                    : 'border-rose-300 bg-rose-50/70'
+                  : 'border-slate-200 bg-slate-50'
+              }`}>
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                    Student-Produced Response
+                  </label>
+                  {isChecked && (
+                    <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full ${
+                      checkIsCorrect(currentAnswer, currentQ.correctAnswer) ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                    }`}>
+                      {checkIsCorrect(currentAnswer, currentQ.correctAnswer) ? 'Correct' : 'Incorrect'}
+                    </span>
+                  )}
+                </div>
                 <input
                   type="text"
                   value={currentAnswer}
-                  onChange={(e) => handleSelectAnswer(e.target.value)}
+                  disabled={isChecked}
+                  onChange={(e) => {
+                    if (isChecked) return;
+                    handleSelectAnswer(e.target.value);
+                  }}
                   placeholder="Enter answer (e.g., 23, 4/3, .75)"
-                  className="w-full px-4 py-3 rounded-xl border border-slate-300 bg-white font-mono text-base font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                  className={`w-full px-4 py-3 rounded-xl border font-mono text-base font-semibold transition-colors focus:outline-none ${
+                    isChecked
+                      ? checkIsCorrect(currentAnswer, currentQ.correctAnswer)
+                        ? 'border-emerald-500 bg-emerald-50 text-emerald-950 cursor-not-allowed'
+                        : 'border-rose-500 bg-rose-50 text-rose-950 cursor-not-allowed'
+                      : 'border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-blue-600'
+                  }`}
                 />
               </div>
             )}
 
             {/* Instant Feedback Explanation */}
-            {instantFeedback && currentAnswer && (
+            {instantFeedback && isChecked && (
               <div
-                className={`p-4 rounded-2xl border text-xs leading-relaxed space-y-2 ${
-                  currentQ.correctAnswer &&
-                  (currentAnswer === currentQ.correctAnswer ||
-                    currentAnswer.toLowerCase() === currentQ.correctAnswer.toLowerCase())
-                    ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
-                    : 'bg-rose-50 border-rose-200 text-rose-900'
+                className={`p-5 rounded-2xl border leading-relaxed space-y-3 animate-in fade-in zoom-in-95 duration-200 ${
+                  checkIsCorrect(currentAnswer, currentQ.correctAnswer, currentQ.choices)
+                    ? 'bg-emerald-50/90 border-emerald-300 text-emerald-950 shadow-xs'
+                    : 'bg-rose-50/90 border-rose-300 text-rose-950 shadow-xs'
                 }`}
               >
-                <div className="font-bold flex items-center gap-1.5 text-sm">
-                  {currentQ.correctAnswer &&
-                  (currentAnswer === currentQ.correctAnswer ||
-                    currentAnswer.toLowerCase() === currentQ.correctAnswer.toLowerCase()) ? (
-                    <>
-                      <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                      <span>Correct Answer!</span>
-                    </>
-                  ) : (
-                    <>
-                      <XCircle className="w-5 h-5 text-rose-600" />
-                      <span>Official Answer: {currentQ.correctAnswer || 'N/A'}</span>
-                    </>
-                  )}
+                <div className="font-bold flex items-center justify-between text-sm border-b pb-2 border-current/15">
+                  <div className="flex items-center gap-2">
+                    {checkIsCorrect(currentAnswer, currentQ.correctAnswer, currentQ.choices) ? (
+                      <>
+                        <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                        <span className="text-emerald-900 font-extrabold text-base">Correct Answer!</span>
+                      </>
+                    ) : (
+                      <>
+                        <XCircle className="w-5 h-5 text-rose-600 shrink-0" />
+                        <span className="text-rose-900 font-extrabold text-base">Incorrect</span>
+                      </>
+                    )}
+                  </div>
+
+                  <div className="text-xs font-mono font-bold px-2.5 py-1 rounded-md bg-white/80 border border-current/20 text-slate-900">
+                    Official Answer: <span className="font-black underline">{currentQ.correctAnswer || 'N/A'}</span>
+                  </div>
                 </div>
+
                 {currentQ.explanation && (
-                  <div className="pt-1 border-t border-slate-200/50">
-                    <MathRenderer text={currentQ.explanation} />
+                  <div className="space-y-1.5 pt-1">
+                    <div className="text-xs font-bold uppercase tracking-wider text-slate-600 flex items-center gap-1.5">
+                      <FileText className="w-3.5 h-3.5 text-blue-600" />
+                      <span>Explanation & Rationale</span>
+                    </div>
+                    <div className="text-sm font-serif text-slate-800 leading-relaxed bg-white/80 p-3.5 rounded-xl border border-black/5">
+                      <MathRenderer text={currentQ.explanation} />
+                    </div>
                   </div>
                 )}
               </div>
@@ -462,6 +608,38 @@ export default function BluebookTestShell({
         );
 
         if (hasLeftPane) {
+          if (isLeftCollapsed) {
+            return (
+              <div className="flex-1 flex flex-col overflow-hidden relative">
+                {/* Collapsed Left Pane Banner */}
+                <div className="bg-slate-100 border-b border-slate-200 px-6 py-2.5 flex items-center justify-between text-xs text-slate-700 shrink-0 select-none">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-slate-900">Passage / Reference Panel Collapsed</span>
+                    <span className="text-slate-500 hidden sm:inline">• Hidden to give you full screen width</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsLeftCollapsed(false)}
+                    className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-xs transition-colors cursor-pointer"
+                  >
+                    <Columns className="w-3.5 h-3.5" />
+                    <span>Show Passage Panel</span>
+                  </button>
+                </div>
+
+                {/* Single Full-Width Right Pane */}
+                <div
+                  onMouseUp={handleTextSelect}
+                  className="flex-1 overflow-y-auto bg-white p-6 md:p-10"
+                >
+                  <div className="max-w-2xl mx-auto">
+                    {questionStemJsx}
+                  </div>
+                </div>
+              </div>
+            );
+          }
+
           return (
             <div className="flex-1 flex overflow-hidden relative">
               {/* LEFT PANE: PASSAGE / CONTEXT / STIMULUS / GRAPH */}
@@ -471,18 +649,32 @@ export default function BluebookTestShell({
                   isExpandedLeft ? 'w-3/4' : 'w-1/2'
                 }`}
               >
-                {/* Pane Expand Button */}
-                <button
-                  type="button"
-                  onClick={() => setIsExpandedLeft((prev) => !prev)}
-                  className="absolute top-4 right-4 p-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition-colors z-10"
-                  title={isExpandedLeft ? 'Reset View Split' : 'Expand Passage Pane'}
-                >
-                  {isExpandedLeft ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-                </button>
+                {/* Left Pane Action Controls */}
+                <div className="absolute top-4 right-4 flex items-center gap-1.5 z-10 select-none">
+                  {/* Collapse Left Pane Button */}
+                  <button
+                    type="button"
+                    onClick={() => setIsLeftCollapsed(true)}
+                    className="flex items-center gap-1 px-2 py-1 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-900 text-xs font-semibold transition-colors shadow-2xs"
+                    title="Collapse Passage Panel"
+                  >
+                    <Columns className="w-3.5 h-3.5 text-blue-600" />
+                    <span className="hidden sm:inline">Collapse</span>
+                  </button>
+
+                  {/* Expand / Reset Split Button */}
+                  <button
+                    type="button"
+                    onClick={() => setIsExpandedLeft((prev) => !prev)}
+                    className="p-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-900 transition-colors shadow-2xs"
+                    title={isExpandedLeft ? 'Reset View Split (50/50)' : 'Expand Passage Pane (75%)'}
+                  >
+                    {isExpandedLeft ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+                  </button>
+                </div>
 
                 {/* Passage Text */}
-                <div className="max-w-2xl mx-auto space-y-6">
+                <div className="max-w-2xl mx-auto space-y-6 pt-2">
                   {currentQ.passageText && (
                     <div className="font-serif text-black text-base md:text-lg leading-relaxed space-y-4">
                       <MarkdownRenderer content={currentQ.passageText} highlights={currentQuestionHighlights} />
@@ -499,7 +691,10 @@ export default function BluebookTestShell({
               </div>
 
               {/* RIGHT PANE */}
-              <div className={`h-full bg-white overflow-y-auto p-6 md:p-10 ${isExpandedLeft ? 'w-1/4' : 'w-1/2'}`}>
+              <div
+                onMouseUp={handleTextSelect}
+                className={`h-full bg-white overflow-y-auto p-6 md:p-10 ${isExpandedLeft ? 'w-1/4' : 'w-1/2'}`}
+              >
                 <div className="max-w-xl mx-auto">
                   {questionStemJsx}
                 </div>
@@ -718,22 +913,39 @@ export default function BluebookTestShell({
           )}
         </div>
 
-        {/* Right Navigation: Back & Next / Finish (Bluebook Cyan Button) */}
+        {/* Right Navigation: Back & Check Answer / Next / Finish */}
         <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={() => setCurrentIndex((prev) => Math.max(0, prev - 1))}
             disabled={currentIndex === 0}
-            className="px-5 py-2.5 rounded-full border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 text-slate-700 text-xs font-bold transition-colors"
+            className="px-5 py-2.5 rounded-full border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 text-slate-700 text-xs font-bold transition-colors cursor-pointer"
           >
             Back
           </button>
 
-          {currentIndex < totalQuestions - 1 ? (
+          {instantFeedback && !isChecked && currentAnswer ? (
             <button
               type="button"
-              onClick={() => setCurrentIndex((prev) => Math.min(totalQuestions - 1, prev + 1))}
-              className="px-6 py-2.5 rounded-full bg-[#00a2e8] hover:bg-[#008cc9] text-white font-bold text-xs shadow-sm transition-transform active:scale-95 flex items-center gap-1.5"
+              onClick={() => {
+                setCheckedQuestions((prev) => ({ ...prev, [currentIndex]: true }));
+              }}
+              className="px-6 py-2.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md transition-transform active:scale-95 flex items-center gap-2 cursor-pointer"
+            >
+              <CheckCircle2 className="w-4 h-4 text-white" />
+              <span>Check Answer</span>
+            </button>
+          ) : currentIndex < totalQuestions - 1 ? (
+            <button
+              type="button"
+              onClick={() => {
+                if (instantFeedback && !isChecked && currentAnswer) {
+                  setCheckedQuestions((prev) => ({ ...prev, [currentIndex]: true }));
+                } else {
+                  setCurrentIndex((prev) => Math.min(totalQuestions - 1, prev + 1));
+                }
+              }}
+              className="px-6 py-2.5 rounded-full bg-[#00a2e8] hover:bg-[#008cc9] text-white font-bold text-xs shadow-sm transition-transform active:scale-95 flex items-center gap-1.5 cursor-pointer"
             >
               <span>Next</span>
               <ArrowRight className="w-4 h-4" />
@@ -741,8 +953,14 @@ export default function BluebookTestShell({
           ) : (
             <button
               type="button"
-              onClick={handleCompleteTest}
-              className="px-6 py-2.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm transition-transform active:scale-95 flex items-center gap-1.5"
+              onClick={() => {
+                if (instantFeedback && !isChecked && currentAnswer) {
+                  setCheckedQuestions((prev) => ({ ...prev, [currentIndex]: true }));
+                } else {
+                  handleCompleteTest();
+                }
+              }}
+              className="px-6 py-2.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm transition-transform active:scale-95 flex items-center gap-1.5 cursor-pointer"
             >
               <span>Finish Test</span>
               <Check className="w-4 h-4" />
