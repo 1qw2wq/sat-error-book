@@ -23,7 +23,7 @@ import MathRenderer from './MathRenderer';
 
 interface ErrorListTableProps {
   errors: SATErrorItem[];
-  onSelectError: (item: SATErrorItem) => void;
+  onSelectError: (item: SATErrorItem, editMode?: boolean) => void;
   onRefreshData: () => void;
   onStartErrorTest?: () => void;
 }
@@ -337,6 +337,19 @@ export default function ErrorListTable({
                 </div>
 
                 <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      onSelectError(item, true);
+                    }}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors"
+                    title="Edit Question & Choices"
+                  >
+                    <Edit2 className="w-3.5 h-3.5" />
+                  </button>
+
                   {deletingId === item.id ? (
                     <div
                       className="flex items-center gap-1.5 bg-rose-50 dark:bg-rose-950/80 px-2 py-1 rounded-xl border border-rose-200 dark:border-rose-900 animate-in fade-in"

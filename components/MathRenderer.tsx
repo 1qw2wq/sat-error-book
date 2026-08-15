@@ -3,78 +3,116 @@
 import React from 'react';
 import katex from 'katex';
 
-interface MathRendererProps {
-  text: string;
-  className?: string;
-  highlights?: HighlightItem[];
-}
-
 export interface HighlightItem {
   id: string;
   selectedText: string;
   color?: 'yellow' | 'blue' | 'pink' | 'underline';
   noteText?: string;
+  questionIndex?: number;
 }
 
-export function highlightTextNodes(text: string, highlights?: HighlightItem[]): React.ReactNode {
+interface MathRendererProps {
+  text: string;
+  className?: string;
+  highlights?: HighlightItem[];
+  onHighlightClick?: (highlight: HighlightItem, e: React.MouseEvent) => void;
+}
+
+// Normalize strings for matching across smart quotes, dashes, and whitespace variations
+function normalizeText(str: string): string {
+  return str
+    .replace(/[\u2018\u2019']/g, "'")
+    .replace(/[\u201C\u201D"]/g, '"')
+    .replace(/[\u2013\u2014]/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function escapeRegExp(str: string): string {
+  return str.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+}
+
+export function highlightTextNodes(
+  text: string,
+  highlights?: HighlightItem[],
+  onHighlightClick?: (highlight: HighlightItem, e: React.MouseEvent) => void
+): React.ReactNode {
   if (!text || !highlights || highlights.length === 0) return text;
 
-  // Normalize string for fuzzy/whitespace-insensitive lookup
-  const normalize = (str: string) => str.replace(/\s+/g, ' ').trim();
+  const normTarget = normalizeText(text).toLowerCase();
 
-  // Find highlights that overlap or match the text
-  const validHighlights = highlights.filter((h) => {
-    if (!h.selectedText) return false;
-    const cleanSel = normalize(h.selectedText);
-    if (!cleanSel) return false;
-    const cleanText = normalize(text);
-    return cleanText.toLowerCase().includes(cleanSel.toLowerCase()) || text.toLowerCase().includes(h.selectedText.toLowerCase());
+  // Find highlights that appear in this text block
+  const matchedHighlights: { item: HighlightItem; phrase: string }[] = [];
+
+  highlights.forEach((h) => {
+    if (!h.selectedText) return;
+    const cleanSel = normalizeText(h.selectedText);
+    if (!cleanSel) return;
+
+    // Only match exact full selection phrase that appears in this text block
+    if (normTarget.includes(cleanSel.toLowerCase())) {
+      matchedHighlights.push({ item: h, phrase: cleanSel });
+    }
   });
 
-  if (validHighlights.length === 0) return text;
+  if (matchedHighlights.length === 0) return text;
 
-  // Sort by length descending to match longer phrases first
-  const sorted = [...validHighlights].sort((a, b) => b.selectedText.length - a.selectedText.length);
+  // Sort matched phrases by length descending
+  matchedHighlights.sort((a, b) => b.phrase.length - a.phrase.length);
 
-  // Build pattern using regex escaping for each highlight string
-  const patternParts = sorted.map((h) => {
-    const escaped = h.selectedText.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-    // Allow flexible whitespace in match if user selected across line breaks or spaces
+  // Deduplicate phrases
+  const uniquePhrases = Array.from(new Set(matchedHighlights.map((m) => m.phrase)));
+
+  const regexPatterns = uniquePhrases.map((phrase) => {
+    const escaped = escapeRegExp(phrase);
     return escaped.replace(/\\\s+/g, '\\s+');
   });
 
-  const pattern = patternParts.join('|');
-  if (!pattern) return text;
+  const masterPattern = regexPatterns.join('|');
+  if (!masterPattern) return text;
 
   try {
-    const regex = new RegExp(`(${pattern})`, 'gi');
+    const regex = new RegExp(`(${masterPattern})`, 'gi');
     const parts = text.split(regex);
 
     return parts.map((part, idx) => {
-      const cleanPart = normalize(part).toLowerCase();
-      const match = sorted.find((h) => {
-        const cleanSel = normalize(h.selectedText).toLowerCase();
-        return cleanSel === cleanPart || h.selectedText.toLowerCase() === part.toLowerCase();
+      if (!part) return null;
+      const cleanPart = normalizeText(part).toLowerCase();
+
+      const matchedObj = matchedHighlights.find((m) => {
+        const pNorm = normalizeText(m.phrase).toLowerCase();
+        return pNorm === cleanPart || part.toLowerCase() === m.phrase.toLowerCase();
       });
 
-      if (match) {
-        const color = match.color || 'yellow';
-        let styleClass = 'bg-amber-200/90 text-amber-950 border-b-2 border-amber-400 font-medium px-0.5 rounded-2xs';
+      if (matchedObj) {
+        const item = matchedObj.item;
+        const color = item.color || 'yellow';
+        let styleClass = 'bg-[#fef08a] text-slate-900 border-b-2 border-amber-400 font-medium px-0.5 rounded-2xs shadow-2xs';
         if (color === 'blue') {
-          styleClass = 'bg-sky-200/90 text-sky-950 border-b-2 border-sky-400 font-medium px-0.5 rounded-2xs';
+          styleClass = 'bg-[#bae6fd] text-slate-900 border-b-2 border-sky-400 font-medium px-0.5 rounded-2xs shadow-2xs';
         } else if (color === 'pink') {
-          styleClass = 'bg-pink-200/90 text-pink-950 border-b-2 border-pink-400 font-medium px-0.5 rounded-2xs';
+          styleClass = 'bg-[#fbcfe8] text-slate-900 border-b-2 border-pink-400 font-medium px-0.5 rounded-2xs shadow-2xs';
         } else if (color === 'underline') {
-          styleClass = 'underline decoration-2 decoration-blue-600 underline-offset-4 font-semibold text-slate-900';
+          styleClass = 'underline decoration-2 decoration-blue-600 underline-offset-4 font-semibold text-slate-900 bg-blue-50/50 px-0.5 rounded-2xs';
         }
 
         return (
           <mark
-            key={idx}
-            className={`${styleClass} transition-all hover:brightness-95 cursor-pointer`}
-            title={match.noteText ? `Note: ${match.noteText}` : match.selectedText}
+            key={`hl-${idx}-${part}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onHighlightClick?.(item, e);
+            }}
+            data-highlight-id={item.id}
+            className={`${styleClass} transition-all hover:brightness-95 cursor-pointer relative group inline`}
+            title={item.noteText ? `Note: ${item.noteText}` : 'Click to edit or remove highlight'}
           >
             {part}
+            {item.noteText && (
+              <span className="inline-block ml-1 text-[10px] bg-amber-500 text-white font-bold px-1 rounded-full align-super select-none">
+                Note
+              </span>
+            )}
           </mark>
         );
       }
@@ -90,7 +128,7 @@ export function highlightTextNodes(text: string, highlights?: HighlightItem[]): 
  * Formats inline math ($...$), block math ($$...$$), LaTeX commands (\frac, \sqrt, \le, etc.),
  * and converts unformatted algebraic expressions like (3/4)x or x^2 into clean math.
  */
-export default function MathRenderer({ text, className = '', highlights }: MathRendererProps) {
+export default function MathRenderer({ text, className = '', highlights, onHighlightClick }: MathRendererProps) {
   if (!text) return null;
 
   // Render a math string using KaTeX safely
@@ -155,18 +193,71 @@ export default function MathRenderer({ text, className = '', highlights }: MathR
         }
 
         // Plain prose with potential inline equations like y = 3x - 5 or x^2
-        return <span key={index}>{renderProseWithInlineMath(part, index, highlights)}</span>;
+        return <span key={index}>{renderProseWithInlineMath(part, index, highlights, onHighlightClick)}</span>;
       })}
     </span>
   );
 }
 
-function renderProseWithInlineMath(prose: string, baseKey: number, highlights?: HighlightItem[]) {
+function renderProseWithInlineMath(
+  prose: string,
+  baseKey: number,
+  highlights?: HighlightItem[],
+  onHighlightClick?: (highlight: HighlightItem, e: React.MouseEvent) => void
+) {
+  // Support HTML underline <u>...</u>, <b>...</b>, and Markdown **...** formatting in prose
+  const formatTagRegex = /(<u>[\s\S]*?<\/u>|<b>[\s\S]*?<\/b>|\*\*[\s\S]*?\*\*)/gi;
+  const tagParts = prose.split(formatTagRegex);
+
+  if (tagParts.length > 1) {
+    return tagParts.map((tagPart, tIdx) => {
+      if (!tagPart) return null;
+
+      if (/^<u>[\s\S]*?<\/u>$/i.test(tagPart)) {
+        const inner = tagPart.replace(/^<u>/i, '').replace(/<\/u>$/i, '');
+        return (
+          <span key={`u-${baseKey}-${tIdx}`} className="underline decoration-2 underline-offset-4 font-normal inline">
+            {renderProseWithInlineMath(inner, baseKey * 100 + tIdx, highlights, onHighlightClick)}
+          </span>
+        );
+      }
+
+      if (/^<b>[\s\S]*?<\/b>$/i.test(tagPart)) {
+        const inner = tagPart.replace(/^<b>/i, '').replace(/<\/b>$/i, '');
+        return (
+          <strong key={`b-${baseKey}-${tIdx}`} className="font-extrabold text-inherit inline">
+            {renderProseWithInlineMath(inner, baseKey * 100 + tIdx, highlights, onHighlightClick)}
+          </strong>
+        );
+      }
+
+      if (/^\*\*[\s\S]*?\*\*$/.test(tagPart)) {
+        const inner = tagPart.slice(2, -2);
+        return (
+          <strong key={`bold-${baseKey}-${tIdx}`} className="font-extrabold text-inherit inline">
+            {renderProseWithInlineMath(inner, baseKey * 100 + tIdx, highlights, onHighlightClick)}
+          </strong>
+        );
+      }
+
+      return renderMathSegments(tagPart, baseKey * 100 + tIdx, highlights, onHighlightClick);
+    });
+  }
+
+  return renderMathSegments(prose, baseKey, highlights, onHighlightClick);
+}
+
+function renderMathSegments(
+  prose: string,
+  baseKey: number,
+  highlights?: HighlightItem[],
+  onHighlightClick?: (highlight: HighlightItem, e: React.MouseEvent) => void
+) {
   // Matches expressions like y = -3x + 4, x^2 - 4x + 3 = 0, f(x), (2, -1), x^2
   const exprRegex = /(\b(?:[a-zA-Z]\([a-zA-Z0-9\s,\+-]+\)|[a-zA-Z0-9_-]+\^[0-9a-zA-Z]+|\d*x\^2|\b[a-zA-Z]\s*=\s*[-+\d\/\*\.\(\)a-zA-Z]+|\b\d+[a-zA-Z]\s*[\+-]\s*\d+[a-zA-Z]\s*=\s*\d+)\b)/g;
 
   const subParts = prose.split(exprRegex);
-  if (subParts.length <= 1) return highlightTextNodes(prose, highlights);
+  if (subParts.length <= 1) return highlightTextNodes(prose, highlights, onHighlightClick);
 
   return subParts.map((sub, i) => {
     if (exprRegex.test(sub)) {
@@ -184,9 +275,9 @@ function renderProseWithInlineMath(prose: string, baseKey: number, highlights?: 
           />
         );
       } catch {
-        return <span key={`sub-${baseKey}-${i}`}>{highlightTextNodes(sub, highlights)}</span>;
+        return <span key={`sub-${baseKey}-${i}`}>{highlightTextNodes(sub, highlights, onHighlightClick)}</span>;
       }
     }
-    return <span key={`sub-${baseKey}-${i}`}>{highlightTextNodes(sub, highlights)}</span>;
+    return <span key={`sub-${baseKey}-${i}`}>{highlightTextNodes(sub, highlights, onHighlightClick)}</span>;
   });
 }

@@ -37,6 +37,7 @@ export default function HomePage() {
 
   // Single error detail modal & Error practice quiz modal
   const [selectedItem, setSelectedItem] = useState<SATErrorItem | null>(null);
+  const [isModalEditMode, setIsModalEditMode] = useState<boolean>(false);
   const [isErrorQuizOpen, setIsErrorQuizOpen] = useState(false);
 
   // Review Filter Override from Dashboard quick launch buttons
@@ -164,7 +165,10 @@ export default function HomePage() {
             {currentTab === 'directory' && (
               <ErrorListTable
                 errors={errors}
-                onSelectError={(item) => setSelectedItem(item)}
+                onSelectError={(item, editMode) => {
+                  setSelectedItem(item);
+                  setIsModalEditMode(!!editMode);
+                }}
                 onRefreshData={refreshData}
                 onStartErrorTest={() => setIsErrorQuizOpen(true)}
               />
@@ -223,10 +227,15 @@ export default function HomePage() {
       {selectedItem && (
         <ErrorDetailModal
           item={selectedItem}
-          onClose={() => setSelectedItem(null)}
+          initialEditMode={isModalEditMode}
+          onClose={() => {
+            setSelectedItem(null);
+            setIsModalEditMode(false);
+          }}
           onUpdated={() => {
             refreshData();
             setSelectedItem(null);
+            setIsModalEditMode(false);
           }}
         />
       )}

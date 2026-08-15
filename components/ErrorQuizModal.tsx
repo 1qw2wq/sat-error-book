@@ -24,6 +24,7 @@ import { SATErrorItem, SATSubject, MasteryStatus } from '@/types/sat';
 import { saveError } from '@/lib/db';
 import { gradeStudentResponse } from '@/lib/answerGrading';
 import MathRenderer from './MathRenderer';
+import MarkdownRenderer from './MarkdownRenderer';
 import GraphRenderer from './GraphRenderer';
 import Scratchpad from './Scratchpad';
 import BluebookTestShell, { BluebookQuestionItem } from './BluebookTestShell';
@@ -554,7 +555,7 @@ export default function ErrorQuizModal({
                         </div>
 
                         <div className="line-clamp-2 text-slate-600 dark:text-slate-300 font-medium">
-                          <MathRenderer text={item.questionText} />
+                          <MarkdownRenderer content={item.questionText} />
                         </div>
 
                         {!isCorrect && (

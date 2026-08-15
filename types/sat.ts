@@ -46,7 +46,7 @@ export interface GraphData {
   tableData?: { headers: string[]; rows: string[][] };
   description?: string;
   imageIndex?: number; // Index of screenshot containing the graph
-  box2d?: [number, number, number, number]; // [ymin, xmin, ymax, xmax] normalized 0..1000
+  box2d?: [number, number, number, number] | number[]; // [ymin, xmin, ymax, xmax] normalized 0..1000
   croppedGraphUrl?: string; // Cropped base64 PNG image cut from the screenshot
 }
 

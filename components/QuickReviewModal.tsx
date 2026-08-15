@@ -1,12 +1,14 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { X, Sparkles, Check, AlertCircle, Loader2, Save, Tag, HelpCircle, Edit3, Image as ImageIcon } from 'lucide-react';
+import { X, Sparkles, Check, AlertCircle, Loader2, Save, Tag, HelpCircle, Edit3, Image as ImageIcon, Crop } from 'lucide-react';
 import { SATErrorItem, SATSubject, MistakeType, ParseErrorResponse, GraphData } from '@/types/sat';
 import { saveError } from '@/lib/db';
 import { cropImageBoundingBox } from '@/lib/imageCropper';
 import MathRenderer from './MathRenderer';
 import GraphRenderer from './GraphRenderer';
+import MarkdownRenderer from './MarkdownRenderer';
+import ImageCropModal from './ImageCropModal';
 
 interface QuickReviewModalProps {
   imageDataUrl?: string | null;
@@ -49,6 +51,7 @@ export default function QuickReviewModal({
   const [userNotes, setUserNotes] = useState('');
   const [testSource, setTestSource] = useState('Practice Test');
   const [difficulty, setDifficulty] = useState<'Easy' | 'Medium' | 'Hard'>('Medium');
+  const [isCropModalOpen, setIsCropModalOpen] = useState(false);
 
   useEffect(() => {
     if (activeImages.length === 0) return;
@@ -59,11 +62,11 @@ export default function QuickReviewModal({
       setErrorMsg(null);
 
       try {
-        setLoadingStep(`Analyzing ${activeImages.length} screenshot(s) with Gemini 3.1 Flash Lite...`);
-        await new Promise((r) => setTimeout(r, 300));
+        setLoadingStep(`Running high-speed OCR on ${activeImages.length} screenshot(s)...`);
+        await new Promise((r) => setTimeout(r, 200));
 
         if (!isMounted) return;
-        setLoadingStep('Performing OCR, extracting formulas, text, graphs, & choices...');
+        setLoadingStep('Generating step-by-step solutions, active recall takeaways, & formatting...');
 
         const res = await fetch('/api/parse-error', {
           method: 'POST',
@@ -99,26 +102,36 @@ export default function QuickReviewModal({
           setExplanation(data.explanation || '');
           if (data.graphData && data.graphData.hasGraph) {
             const gData = { ...data.graphData };
-            const imgIndex = gData.imageIndex || 0;
-            const targetImg = activeImages[imgIndex] || activeImages[0];
+            const gType = (gData.graphType || '').toLowerCase();
+            const gTitle = (gData.title || '').toLowerCase();
+            const gDesc = (gData.description || '').toLowerCase();
 
-            if (targetImg) {
-              if (gData.box2d && gData.box2d.length === 4) {
-                try {
-                  gData.croppedGraphUrl = await cropImageBoundingBox(targetImg, gData.box2d);
-                } catch (e) {
-                  gData.croppedGraphUrl = targetImg;
-                }
-              } else {
-                // Default top crop if box2d is missing
-                try {
-                  gData.croppedGraphUrl = await cropImageBoundingBox(targetImg, [0, 0, 500, 1000]);
-                } catch (e) {
-                  gData.croppedGraphUrl = targetImg;
+            // Do not crop if it's a data table
+            if (gType.includes('table') || gTitle.includes('table') || gDesc.includes('table')) {
+              gData.hasGraph = false;
+              setGraphData(undefined);
+            } else {
+              const imgIndex = gData.imageIndex || 0;
+              const targetImg = activeImages[imgIndex] || activeImages[0];
+
+              if (targetImg) {
+                if (gData.box2d && gData.box2d.length === 4) {
+                  try {
+                    gData.croppedGraphUrl = await cropImageBoundingBox(targetImg, gData.box2d, 0.02);
+                  } catch (e) {
+                    gData.croppedGraphUrl = targetImg;
+                  }
+                } else {
+                  // Default top crop if box2d is missing
+                  try {
+                    gData.croppedGraphUrl = await cropImageBoundingBox(targetImg, [0, 0, 500, 1000], 0.02);
+                  } catch (e) {
+                    gData.croppedGraphUrl = targetImg;
+                  }
                 }
               }
+              setGraphData(gData);
             }
-            setGraphData(gData);
           }
           if (data.mistakeTypeHint) {
             setMistakeType(data.mistakeTypeHint);
@@ -200,7 +213,7 @@ export default function QuickReviewModal({
                 Auto-Log SAT Error
               </h2>
               <p className="text-xs text-slate-600 dark:text-slate-300">
-                Gemini 3.1 Flash Lite parsed your screenshot(s)
+                OCR.space Engine + Gemini Flash Lite Solution Generator
               </p>
             </div>
           </div>
@@ -365,10 +378,49 @@ export default function QuickReviewModal({
                 </div>
               </div>
 
-              {/* Render Detected Graph / Diagram if present */}
-              {graphData && graphData.hasGraph && (
-                <GraphRenderer graphData={graphData} imageDataUrls={activeImages} />
-              )}
+              {/* Render Detected Graph / Diagram or Manual Crop Control */}
+              <div className="space-y-2">
+                {graphData && graphData.hasGraph && (
+                  <div className="relative group">
+                    <GraphRenderer graphData={graphData} imageDataUrls={activeImages} />
+                    <div className="mt-2 flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setIsCropModalOpen(true)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-blue-50 dark:hover:bg-slate-700 transition-colors shadow-2xs"
+                      >
+                        <Crop className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                        <span>Adjust Diagram Crop Manually</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setGraphData(undefined)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-900 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors shadow-2xs"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                        <span>Remove Diagram</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {(!graphData || !graphData.hasGraph) && activeImages.length > 0 && (
+                  <div className="flex items-center justify-between p-3 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-900/50">
+                    <div className="text-xs text-slate-600 dark:text-slate-400">
+                      <span className="font-semibold text-slate-900 dark:text-white block">No graph/diagram cropped</span>
+                      <span>Tables are rendered in Markdown text. If there is a visual coordinate graph or geometry figure, you can crop it manually.</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsCropModalOpen(true)}
+                      className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 hover:bg-blue-100 transition-colors shadow-2xs"
+                    >
+                      <Crop className="w-3.5 h-3.5 text-blue-600" />
+                      <span>+ Crop Diagram Manually</span>
+                    </button>
+                  </div>
+                )}
+              </div>
 
               {/* AI Active Recall Takeaway Box */}
               <div className="p-4 rounded-xl bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50">
@@ -400,8 +452,8 @@ export default function QuickReviewModal({
                   />
                   {questionText.trim() && (
                     <div className="mt-2 p-2.5 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Formatted Preview:</span>
-                      <MathRenderer text={questionText} />
+                      <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Formatted Preview (Bold, Underline, KaTeX Math):</span>
+                      <MarkdownRenderer content={questionText} />
                     </div>
                   )}
                 </div>
@@ -486,6 +538,29 @@ export default function QuickReviewModal({
               <span>Save to Error Book</span>
             </button>
           </div>
+        )}
+        {/* Image Crop Modal for Manual Diagram Adjustment */}
+        {isCropModalOpen && activeImages.length > 0 && (
+          <ImageCropModal
+            images={activeImages}
+            initialBox2d={graphData?.box2d}
+            initialImageIndex={graphData?.imageIndex ?? activePreviewIndex}
+            onClose={() => setIsCropModalOpen(false)}
+            onSaveCrop={(croppedDataUrl, box2d, imageIndex) => {
+              setGraphData({
+                hasGraph: true,
+                croppedGraphUrl: croppedDataUrl,
+                box2d,
+                imageIndex,
+                title: graphData?.title || 'Cropped Figure',
+                graphType: graphData?.graphType || 'diagram',
+              });
+              setIsCropModalOpen(false);
+            }}
+            onRemoveCrop={() => {
+              setGraphData(undefined);
+            }}
+          />
         )}
       </div>
     </div>

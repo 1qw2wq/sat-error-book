@@ -2,11 +2,13 @@
  * Helper to crop a bounding box region from an image data URL
  * @param dataUrl Base64 or Blob image URL
  * @param box2d Bounding box [ymin, xmin, ymax, xmax] normalized to 0..1000 scale
+ * @param paddingRatio Optional padding ratio around bounding box (default 0 for manual precision)
  * @returns Base64 PNG data URL of the cropped region
  */
 export async function cropImageBoundingBox(
   dataUrl: string,
-  box2d: [number, number, number, number]
+  box2d: [number, number, number, number] | number[],
+  paddingRatio: number = 0
 ): Promise<string> {
   return new Promise((resolve) => {
     if (typeof window === 'undefined') {
@@ -36,16 +38,15 @@ export async function cropImageBoundingBox(
         const height = img.height;
 
         // Convert 0..1000 scale to actual image pixel coordinates
-        // Add a 1.5% padding around bounding box to prevent clipping text edges
-        const padX = Math.round(width * 0.02);
-        const padY = Math.round(height * 0.02);
+        const padX = Math.round(width * Math.max(0, paddingRatio));
+        const padY = Math.round(height * Math.max(0, paddingRatio));
 
         const cropX = Math.max(0, Math.round((xmin / 1000) * width) - padX);
         const cropY = Math.max(0, Math.round((ymin / 1000) * height) - padY);
         const cropW = Math.min(width - cropX, Math.round(((xmax - xmin) / 1000) * width) + padX * 2);
         const cropH = Math.min(height - cropY, Math.round(((ymax - ymin) / 1000) * height) + padY * 2);
 
-        if (cropW <= 10 || cropH <= 10) {
+        if (cropW <= 5 || cropH <= 5) {
           resolve(dataUrl);
           return;
         }
@@ -59,6 +60,10 @@ export async function cropImageBoundingBox(
           resolve(dataUrl);
           return;
         }
+
+        // Use high quality image smoothing
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
 
         ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
         const croppedUrl = canvas.toDataURL('image/png');

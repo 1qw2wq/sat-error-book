@@ -448,13 +448,29 @@ export default function FlashcardEngine({
                 />
               )}
 
-              {/* Question Text */}
+              {/* Passage Text if present */}
+              {currentItem.passageText &&
+                currentItem.passageText.trim().length > 0 &&
+                currentItem.passageText.trim().toLowerCase() !== 'none' &&
+                currentItem.passageText.trim().toLowerCase() !== 'none.' &&
+                currentItem.passageText.trim().toLowerCase() !== 'no passage' && (
+                  <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2">
+                    <h3 className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-[0.1em]">
+                      Reading / Context Passage
+                    </h3>
+                    <div className="text-slate-900 dark:text-slate-100 text-sm font-serif leading-relaxed">
+                      <MarkdownRenderer content={currentItem.passageText} />
+                    </div>
+                  </div>
+                )}
+
+              {/* Question Text (Full Markdown & Table Support) */}
               <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
                 <h3 className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-[0.1em] mb-2">
                   Question Text
                 </h3>
                 <div className="text-slate-900 dark:text-slate-100 text-base font-medium leading-relaxed">
-                  <MathRenderer text={currentItem.questionText} />
+                  <MarkdownRenderer content={currentItem.questionText} />
                 </div>
               </div>
 
@@ -491,7 +507,7 @@ export default function FlashcardEngine({
                         <span className="w-6 h-6 rounded-lg bg-slate-100 dark:bg-slate-900 flex items-center justify-center font-bold text-xs shrink-0 border border-slate-200 dark:border-slate-700">
                           {choice.label}
                         </span>
-                        <span className="flex-1 mt-0.5"><MathRenderer text={choice.text} /></span>
+                        <span className="flex-1 mt-0.5"><MarkdownRenderer content={choice.text} /></span>
 
                         {isRevealed && isCorrect && (
                           <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
