@@ -14,6 +14,7 @@ import {
   Trophy,
   ArrowRight,
   Award,
+  Loader2,
 } from 'lucide-react';
 import { VocabItem, MasteryStatus } from '@/types/sat';
 import { saveVocab } from '@/lib/db';
@@ -285,24 +286,36 @@ export default function VocabQuizModal({
 
   // Apply auto mastery
   const [masteryUpdated, setMasteryUpdated] = useState(false);
+  const [isSavingMasteries, setIsSavingMasteries] = useState(false);
+
   const handleApplyMasteryUpdates = async () => {
-    for (const entry of answersLog) {
-      const item = entry.question.wordItem;
-      let newStatus: MasteryStatus = item.masteryStatus || 'Learning';
+    if (isSavingMasteries || masteryUpdated) return;
+    setIsSavingMasteries(true);
 
-      if (entry.isCorrect) {
-        newStatus = item.masteryStatus === 'Learning' ? 'Mastered' : 'Learning';
-      } else {
-        newStatus = 'Confused';
+    try {
+      for (const entry of answersLog) {
+        const item = entry.question.wordItem;
+        let newStatus: MasteryStatus = item.masteryStatus || 'Learning';
+
+        if (entry.isCorrect) {
+          newStatus = item.masteryStatus === 'Learning' ? 'Mastered' : 'Learning';
+        } else {
+          newStatus = 'Confused';
+        }
+
+        await saveVocab({
+          ...item,
+          masteryStatus: newStatus,
+          nextReviewDate: new Date(Date.now() + 86400000 * (entry.isCorrect ? 3 : 1)).toISOString(),
+        });
       }
-
-      await saveVocab({
-        ...item,
-        masteryStatus: newStatus,
-      });
+      setMasteryUpdated(true);
+      onRefreshVocab();
+    } catch (err) {
+      console.error('Failed to update vocab masteries:', err);
+    } finally {
+      setIsSavingMasteries(false);
     }
-    setMasteryUpdated(true);
-    onRefreshVocab();
   };
 
   const correctCount = answersLog.filter((a) => a.isCorrect).length;
@@ -535,12 +548,22 @@ export default function VocabQuizModal({
                 </div>
               </div>
 
+              {/* Success Notification Banner */}
+              {masteryUpdated && (
+                <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 text-xs font-semibold flex items-center gap-2.5 animate-in fade-in duration-200">
+                  <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                  <span>
+                    Vocabulary retention masteries and next review schedules have been successfully updated!
+                  </span>
+                </div>
+              )}
+
               {/* Actions */}
               <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3">
                 <button
                   type="button"
                   onClick={handleStartTest}
-                  className="w-full sm:w-auto px-5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs flex items-center justify-center gap-2"
+                  className="w-full sm:w-auto px-5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs flex items-center justify-center gap-2 transition-colors cursor-pointer"
                 >
                   <RotateCcw className="w-4 h-4" /> Retake Test
                 </button>
@@ -548,11 +571,31 @@ export default function VocabQuizModal({
                 <button
                   type="button"
                   onClick={handleApplyMasteryUpdates}
-                  disabled={masteryUpdated}
-                  className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-800 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-md"
+                  disabled={masteryUpdated || isSavingMasteries}
+                  className={`w-full sm:w-auto px-6 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 shadow-md transition-all ${
+                    masteryUpdated
+                      ? 'bg-emerald-700 text-white cursor-default'
+                      : isSavingMasteries
+                      ? 'bg-emerald-700/80 text-white cursor-wait'
+                      : 'bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white cursor-pointer'
+                  }`}
                 >
-                  <Award className="w-4 h-4" />
-                  <span>{masteryUpdated ? 'Masteries Updated!' : 'Auto-Update Word Masteries'}</span>
+                  {isSavingMasteries ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin text-white" />
+                      <span>Updating Masteries...</span>
+                    </>
+                  ) : masteryUpdated ? (
+                    <>
+                      <CheckCircle2 className="w-4 h-4 text-emerald-200" />
+                      <span>Masteries Updated!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Award className="w-4 h-4 text-white" />
+                      <span>Auto-Update Word Masteries</span>
+                    </>
+                  )}
                 </button>
               </div>
             </div>

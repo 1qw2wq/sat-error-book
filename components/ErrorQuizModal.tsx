@@ -19,12 +19,12 @@ import {
   ImageIcon,
   Brain,
   Layers,
+  Loader2,
 } from 'lucide-react';
 import { SATErrorItem, SATSubject, MasteryStatus } from '@/types/sat';
-import { saveError } from '@/lib/db';
-import { gradeStudentResponse } from '@/lib/answerGrading';
+import { saveError, recordReview } from '@/lib/db';
+import { gradeStudentResponse, evaluateSATQuestionAnswer } from '@/lib/answerGrading';
 import MathRenderer from './MathRenderer';
-import MarkdownRenderer from './MarkdownRenderer';
 import GraphRenderer from './GraphRenderer';
 import Scratchpad from './Scratchpad';
 import BluebookTestShell, { BluebookQuestionItem } from './BluebookTestShell';
@@ -184,17 +184,7 @@ export default function ErrorQuizModal({
     const newMap = new Map<string, TestAnswerRecord>();
     testDeck.forEach((err, idx) => {
       const rawGiven = answers[idx] || '';
-      let isCorrect = false;
-
-      if (err.answerChoices && err.answerChoices.length > 0) {
-        const choiceIdx = ['A', 'B', 'C', 'D'].indexOf(rawGiven.toUpperCase());
-        const selectedChoiceObj = choiceIdx !== -1 ? err.answerChoices[choiceIdx] : undefined;
-        const givenLabel = selectedChoiceObj ? selectedChoiceObj.label : rawGiven;
-        isCorrect = givenLabel.toUpperCase() === err.correctAnswer.toUpperCase();
-      } else {
-        const res = gradeStudentResponse(rawGiven, err.correctAnswer);
-        isCorrect = res.isCorrect;
-      }
+      const isCorrect = evaluateSATQuestionAnswer(rawGiven, err.correctAnswer, err.answerChoices);
 
       newMap.set(err.id, {
         item: err,
@@ -212,16 +202,11 @@ export default function ErrorQuizModal({
   const handleAnswerQuestion = (givenAnswer: string) => {
     if (!currentItem) return;
 
-    let isCorrect = false;
-
-    // Multiple choice check
-    if (currentItem.answerChoices && currentItem.answerChoices.length > 0) {
-      isCorrect = givenAnswer.toUpperCase() === currentItem.correctAnswer.toUpperCase();
-    } else {
-      // Non-selection / Grid-In evaluation
-      const res = gradeStudentResponse(givenAnswer, currentItem.correctAnswer);
-      isCorrect = res.isCorrect;
-    }
+    const isCorrect = evaluateSATQuestionAnswer(
+      givenAnswer,
+      currentItem.correctAnswer,
+      currentItem.answerChoices
+    );
 
     const record: TestAnswerRecord = {
       item: currentItem,
@@ -261,27 +246,31 @@ export default function ErrorQuizModal({
 
   // Auto update question masteries
   const [masteryUpdated, setMasteryUpdated] = useState(false);
-  const handleApplyMasteryUpdates = async () => {
-    for (const record of Array.from(testRecords.values())) {
-      const item = record.item;
-      let newStatus: MasteryStatus = item.masteryStatus;
+  const [isSavingMasteries, setIsSavingMasteries] = useState(false);
 
-      if (record.isCorrect) {
-        newStatus = item.masteryStatus === 'Confused' ? 'Learning' : 'Mastered';
-      } else {
-        newStatus = 'Confused';
+  const handleApplyMasteryUpdates = async () => {
+    if (isSavingMasteries || masteryUpdated) return;
+    setIsSavingMasteries(true);
+
+    try {
+      for (const record of Array.from(testRecords.values())) {
+        const item = record.item;
+        const rating: 'confused' | 'learning' | 'mastered' = record.isCorrect
+          ? item.masteryStatus === 'Confused'
+            ? 'learning'
+            : 'mastered'
+          : 'confused';
+
+        await recordReview(item.id, rating, record.timeSpentSeconds || 20);
       }
 
-      await saveError({
-        ...item,
-        masteryStatus: newStatus,
-        masteryLevel: record.isCorrect ? (item.masteryLevel || 0) + 1 : 0,
-        nextReviewDate: new Date(Date.now() + 86400000 * (record.isCorrect ? 3 : 1)).toISOString(),
-      });
+      setMasteryUpdated(true);
+      onRefreshData();
+    } catch (err) {
+      console.error('Failed to update question masteries:', err);
+    } finally {
+      setIsSavingMasteries(false);
     }
-
-    setMasteryUpdated(true);
-    onRefreshData();
   };
 
   // Score statistics
@@ -555,7 +544,7 @@ export default function ErrorQuizModal({
                         </div>
 
                         <div className="line-clamp-2 text-slate-600 dark:text-slate-300 font-medium">
-                          <MarkdownRenderer content={item.questionText} />
+                          <MathRenderer text={item.questionText} />
                         </div>
 
                         {!isCorrect && (
@@ -572,12 +561,22 @@ export default function ErrorQuizModal({
                 </div>
               </div>
 
+              {/* Success Notification Banner */}
+              {masteryUpdated && (
+                <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 text-xs font-semibold flex items-center gap-2.5 animate-in fade-in duration-200">
+                  <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                  <span>
+                    Question masteries, review logs, and spaced repetition intervals have been successfully updated in your Error Book!
+                  </span>
+                </div>
+              )}
+
               {/* Action Buttons */}
               <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3">
                 <button
                   type="button"
                   onClick={handleStartExam}
-                  className="w-full sm:w-auto px-5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs flex items-center justify-center gap-2"
+                  className="w-full sm:w-auto px-5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs flex items-center justify-center gap-2 transition-colors cursor-pointer"
                 >
                   <RotateCcw className="w-4 h-4" /> Retake Practice Drill
                 </button>
@@ -585,13 +584,31 @@ export default function ErrorQuizModal({
                 <button
                   type="button"
                   onClick={handleApplyMasteryUpdates}
-                  disabled={masteryUpdated}
-                  className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-800 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-md"
+                  disabled={masteryUpdated || isSavingMasteries}
+                  className={`w-full sm:w-auto px-6 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 shadow-md transition-all ${
+                    masteryUpdated
+                      ? 'bg-emerald-700 text-white cursor-default'
+                      : isSavingMasteries
+                      ? 'bg-emerald-700/80 text-white cursor-wait'
+                      : 'bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white cursor-pointer'
+                  }`}
                 >
-                  <Award className="w-4 h-4" />
-                  <span>
-                    {masteryUpdated ? 'Masteries Updated!' : 'Auto-Update Question Masteries'}
-                  </span>
+                  {isSavingMasteries ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin text-white" />
+                      <span>Updating Masteries...</span>
+                    </>
+                  ) : masteryUpdated ? (
+                    <>
+                      <CheckCircle2 className="w-4 h-4 text-emerald-200" />
+                      <span>Masteries Updated!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Award className="w-4 h-4 text-white" />
+                      <span>Auto-Update Question Masteries</span>
+                    </>
+                  )}
                 </button>
               </div>
             </div>

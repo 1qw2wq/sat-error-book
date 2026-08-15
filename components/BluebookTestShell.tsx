@@ -28,7 +28,7 @@ import {
 import MathRenderer from './MathRenderer';
 import GraphRenderer from './GraphRenderer';
 import MarkdownRenderer from './MarkdownRenderer';
-import { gradeStudentResponse } from '../lib/answerGrading';
+import { gradeStudentResponse, evaluateSATQuestionAnswer } from '../lib/answerGrading';
 
 export interface BluebookQuestionItem {
   id: string;
@@ -299,26 +299,7 @@ export default function BluebookTestShell({
   // Check if answer is correct
   const checkIsCorrect = useCallback((userAns?: string, officialAns?: string, choices?: string[]): boolean => {
     if (!userAns || !officialAns) return false;
-    const gradeRes = gradeStudentResponse(userAns, officialAns);
-    if (gradeRes.isCorrect) return true;
-
-    if (choices && choices.length > 0) {
-      const choiceLabels = ['A', 'B', 'C', 'D'];
-      const uUpper = userAns.trim().toUpperCase();
-      const oUpper = officialAns.trim().toUpperCase();
-
-      const uIdx = choiceLabels.indexOf(uUpper);
-      if (uIdx >= 0 && choices[uIdx]) {
-        if (gradeStudentResponse(choices[uIdx], officialAns).isCorrect) return true;
-      }
-
-      const oIdx = choiceLabels.indexOf(oUpper);
-      if (oIdx >= 0 && choices[oIdx]) {
-        if (gradeStudentResponse(userAns, choices[oIdx]).isCorrect) return true;
-      }
-    }
-
-    return false;
+    return evaluateSATQuestionAnswer(userAns, officialAns, choices);
   }, []);
 
   // Option Elimination Toggle
