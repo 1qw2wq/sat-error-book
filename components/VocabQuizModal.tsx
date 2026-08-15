@@ -55,17 +55,9 @@ export default function VocabQuizModal({
   // Test progress state
   const [stage, setStage] = useState<'config' | 'testing' | 'results'>('config');
   const [questions, setQuestions] = useState<QuizQuestion[]>([]);
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
-  const [typedAnswer, setTypedAnswer] = useState('');
-  const [isAnswered, setIsAnswered] = useState(false);
   const [answersLog, setAnswersLog] = useState<
     Array<{ question: QuizQuestion; userAnswer: string; isCorrect: boolean }>
   >([]);
-
-  // Timer state
-  const [timeLeft, setTimeLeft] = useState<number>(0);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Available candidate words
   const availableWords = vocabList.filter((item) => {
@@ -135,16 +127,8 @@ export default function VocabQuizModal({
     });
 
     setQuestions(generatedQuestions);
-    setCurrentIndex(0);
     setAnswersLog([]);
-    setIsAnswered(false);
-    setSelectedAnswer(null);
-    setTypedAnswer('');
     setStage('testing');
-
-    if (timerSecondsPerQ > 0) {
-      setTimeLeft(timerSecondsPerQ);
-    }
   };
 
   // Map questions to BluebookQuestionItem format
@@ -221,67 +205,6 @@ export default function VocabQuizModal({
     setAnswersLog(newLog);
     onRefreshVocab();
     setStage('results');
-  };
-
-  // Answer handler
-  const handleAnswerSubmit = useCallback((givenAnswer: string) => {
-    if (isAnswered) return;
-
-    const currentQ = questions[currentIndex];
-    const cleanGiven = givenAnswer.trim().toLowerCase();
-    const cleanCorrect = currentQ.correctAnswerText.trim().toLowerCase();
-
-    const isCorrect =
-      cleanGiven === cleanCorrect ||
-      (currentQ.direction === 'wordToDef' &&
-        cleanGiven.length > 3 &&
-        cleanCorrect.includes(cleanGiven));
-
-    setIsAnswered(true);
-    setSelectedAnswer(givenAnswer);
-
-    setAnswersLog((prev) => [
-      ...prev,
-      {
-        question: currentQ,
-        userAnswer: givenAnswer,
-        isCorrect,
-      },
-    ]);
-  }, [currentIndex, isAnswered, questions]);
-
-  // Timer Countdown Effect
-  useEffect(() => {
-    if (stage !== 'testing' || timerSecondsPerQ === 0 || isAnswered) return;
-
-    timerRef.current = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev <= 1) {
-          clearInterval(timerRef.current!);
-          handleAnswerSubmit('(Time Expired)');
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, [stage, currentIndex, isAnswered, timerSecondsPerQ, handleAnswerSubmit]);
-
-  const handleNextQuestion = () => {
-    if (currentIndex + 1 < questions.length) {
-      setCurrentIndex((prev) => prev + 1);
-      setIsAnswered(false);
-      setSelectedAnswer(null);
-      setTypedAnswer('');
-      if (timerSecondsPerQ > 0) {
-        setTimeLeft(timerSecondsPerQ);
-      }
-    } else {
-      setStage('results');
-    }
   };
 
   // Apply auto mastery
@@ -480,7 +403,8 @@ export default function VocabQuizModal({
               title="Vocabulary Drill"
               sectionName="Reading & Writing • Vocabulary in Context"
               questions={bluebookVocabQuestions}
-              timerSeconds={timerSecondsPerQ > 0 ? timerSecondsPerQ * questions.length : 0}
+              timerSeconds={0}
+              perQuestionTimerSeconds={timerSecondsPerQ}
               instantFeedback={false}
               disableHighlighting={true}
               onFinishTest={handleBluebookVocabFinish}

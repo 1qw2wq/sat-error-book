@@ -60,6 +60,7 @@ interface BluebookTestShellProps {
   sectionName?: string;
   questions: BluebookQuestionItem[];
   timerSeconds?: number;
+  perQuestionTimerSeconds?: number;
   instantFeedback?: boolean;
   disableHighlighting?: boolean;
   onFinishTest: (results: {
@@ -75,6 +76,7 @@ export default function BluebookTestShell({
   sectionName = 'Section 1: Reading and Writing',
   questions,
   timerSeconds = 0,
+  perQuestionTimerSeconds = 0,
   instantFeedback = false,
   disableHighlighting = false,
   onFinishTest,
@@ -111,41 +113,104 @@ export default function BluebookTestShell({
   const [isLeftCollapsed, setIsLeftCollapsed] = useState<boolean>(false);
   const [isExpandedLeft, setIsExpandedLeft] = useState<boolean>(false);
 
-  // Timer
-  const [timeLeft, setTimeLeft] = useState<number>(timerSeconds);
-  const [isTimerHidden, setIsTimerHidden] = useState<boolean>(false);
+  // Drift-Free Timer Engine using Date.now()
+  const testStartTimeRef = useRef<number>(0);
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
+
+  // Overall Exam Countdown Timer
+  const [overallTimeLeft, setOverallTimeLeft] = useState<number>(timerSeconds || 0);
+
+  // Per-Question Countdown Timer (resets on every question)
+  const questionStartTimeRef = useRef<number>(0);
+  const [questionTimeLeft, setQuestionTimeLeft] = useState<number>(perQuestionTimerSeconds || 0);
+
+  const [isTimerHidden, setIsTimerHidden] = useState<boolean>(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const currentQ = questions[currentIndex];
   const totalQuestions = questions.length;
 
-  const handleCompleteTest = useCallback(() => {
-    onFinishTest({
-      answers,
-      markedForReview,
-      timeSpentSeconds: elapsedSeconds,
-    });
-  }, [answers, markedForReview, elapsedSeconds, onFinishTest]);
+  const answersRef = useRef<Record<number, string>>(answers);
+  const markedForReviewRef = useRef<Record<number, boolean>>(markedForReview);
+  const onFinishTestRef = useRef(onFinishTest);
+  const currentIndexRef = useRef<number>(currentIndex);
+  const totalQuestionsRef = useRef<number>(questions.length);
 
-  // Timer interval
   useEffect(() => {
-    const timer = setInterval(() => {
-      setElapsedSeconds((prev) => prev + 1);
-      if (timerSeconds > 0) {
-        setTimeLeft((prev) => {
-          if (prev <= 1) {
-            clearInterval(timer);
-            handleCompleteTest();
-            return 0;
-          }
-          return prev - 1;
-        });
-      }
-    }, 1000);
+    answersRef.current = answers;
+  }, [answers]);
 
-    return () => clearInterval(timer);
-  }, [timerSeconds, handleCompleteTest]);
+  useEffect(() => {
+    markedForReviewRef.current = markedForReview;
+  }, [markedForReview]);
+
+  useEffect(() => {
+    onFinishTestRef.current = onFinishTest;
+  }, [onFinishTest]);
+
+  useEffect(() => {
+    currentIndexRef.current = currentIndex;
+    questionStartTimeRef.current = Date.now();
+  }, [currentIndex]);
+
+  useEffect(() => {
+    totalQuestionsRef.current = questions.length;
+  }, [questions.length]);
+
+  const handleCompleteTest = useCallback(() => {
+    const elapsed = Math.floor((Date.now() - testStartTimeRef.current) / 1000);
+    onFinishTestRef.current({
+      answers: answersRef.current,
+      markedForReview: markedForReviewRef.current,
+      timeSpentSeconds: elapsed,
+    });
+  }, []);
+
+  // Drift-free, high-precision timer loop using timestamps
+  useEffect(() => {
+    testStartTimeRef.current = Date.now();
+    questionStartTimeRef.current = Date.now();
+
+    const interval = setInterval(() => {
+      const now = Date.now();
+
+      // 1. Exact elapsed time
+      const exactElapsed = Math.floor((now - testStartTimeRef.current) / 1000);
+      setElapsedSeconds(exactElapsed);
+
+      // 2. Overall Test countdown
+      if (timerSeconds && timerSeconds > 0) {
+        const remainingOverall = Math.max(0, Math.ceil(timerSeconds - (now - testStartTimeRef.current) / 1000));
+        setOverallTimeLeft(remainingOverall);
+
+        if (remainingOverall <= 0) {
+          clearInterval(interval);
+          handleCompleteTest();
+          return;
+        }
+      }
+
+      // 3. Per-Question countdown (resets for each question)
+      if (perQuestionTimerSeconds && perQuestionTimerSeconds > 0) {
+        const qElapsed = (now - questionStartTimeRef.current) / 1000;
+        const remainingQ = Math.max(0, Math.ceil(perQuestionTimerSeconds - qElapsed));
+        setQuestionTimeLeft(remainingQ);
+
+        if (remainingQ <= 0) {
+          // Question timer expired!
+          if (currentIndexRef.current < totalQuestionsRef.current - 1) {
+            questionStartTimeRef.current = Date.now();
+            setCurrentIndex((prev) => prev + 1);
+          } else {
+            clearInterval(interval);
+            handleCompleteTest();
+          }
+        }
+      }
+    }, 200);
+
+    return () => clearInterval(interval);
+  }, [timerSeconds, perQuestionTimerSeconds, handleCompleteTest]);
 
   // Text selection handler with precise viewport positioning
   const handleTextSelect = useCallback(() => {
@@ -401,12 +466,59 @@ export default function BluebookTestShell({
 
         {/* Center: Bluebook Timer Clock & Hide/Show Toggle */}
         <div className="flex items-center">
-          {timerSeconds > 0 ? (
+          {perQuestionTimerSeconds && perQuestionTimerSeconds > 0 ? (
             <div className="flex items-center gap-2 px-3.5 py-1 rounded-full bg-slate-100 border border-slate-300 font-mono text-xs font-bold text-slate-900 shadow-2xs">
-              <Clock className={`w-3.5 h-3.5 ${timeLeft < 300 ? 'text-rose-600 animate-pulse' : 'text-blue-600'}`} />
+              <Clock
+                className={`w-3.5 h-3.5 ${
+                  questionTimeLeft <= 5 ? 'text-rose-600 animate-pulse' : 'text-indigo-600'
+                }`}
+              />
               {!isTimerHidden ? (
-                <span className={timeLeft < 300 ? 'text-rose-600 font-extrabold' : 'text-slate-900'}>
-                  {Math.floor(timeLeft / 60)}:{String(timeLeft % 60).padStart(2, '0')}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-sans font-medium text-slate-500 hidden sm:inline">
+                    Q-Timer:
+                  </span>
+                  <span
+                    className={
+                      questionTimeLeft <= 5 ? 'text-rose-600 font-extrabold' : 'text-slate-900'
+                    }
+                  >
+                    {Math.floor(questionTimeLeft / 60)}:{String(questionTimeLeft % 60).padStart(2, '0')}
+                  </span>
+                  <span className="text-slate-400 text-[10px] font-sans">
+                    / {perQuestionTimerSeconds}s
+                  </span>
+                </div>
+              ) : (
+                <span className="text-slate-500 font-sans text-xs">Timer Hidden</span>
+              )}
+              <span className="text-slate-300">|</span>
+              <button
+                type="button"
+                onClick={() => setIsTimerHidden((prev) => !prev)}
+                className="text-[11px] font-sans font-semibold text-blue-700 hover:text-blue-900 hover:underline cursor-pointer flex items-center gap-1"
+              >
+                {isTimerHidden ? (
+                  <>
+                    <Eye className="w-3 h-3" /> Show
+                  </>
+                ) : (
+                  <>
+                    <EyeOff className="w-3 h-3" /> Hide
+                  </>
+                )}
+              </button>
+            </div>
+          ) : timerSeconds && timerSeconds > 0 ? (
+            <div className="flex items-center gap-2 px-3.5 py-1 rounded-full bg-slate-100 border border-slate-300 font-mono text-xs font-bold text-slate-900 shadow-2xs">
+              <Clock
+                className={`w-3.5 h-3.5 ${
+                  overallTimeLeft < 300 ? 'text-rose-600 animate-pulse' : 'text-blue-600'
+                }`}
+              />
+              {!isTimerHidden ? (
+                <span className={overallTimeLeft < 300 ? 'text-rose-600 font-extrabold' : 'text-slate-900'}>
+                  {Math.floor(overallTimeLeft / 60)}:{String(overallTimeLeft % 60).padStart(2, '0')}
                 </span>
               ) : (
                 <span className="text-slate-500 font-sans text-xs">Timer Hidden</span>
@@ -496,6 +608,20 @@ export default function BluebookTestShell({
           </button>
         </div>
       </header>
+
+      {/* Visual Question Countdown Bar */}
+      {perQuestionTimerSeconds && perQuestionTimerSeconds > 0 && !isTimerHidden && (
+        <div className="w-full bg-slate-200 dark:bg-slate-800 h-1 overflow-hidden shrink-0">
+          <div
+            className={`h-full transition-all duration-200 ease-linear ${
+              questionTimeLeft <= 5 ? 'bg-rose-500' : 'bg-indigo-600'
+            }`}
+            style={{
+              width: `${Math.max(0, Math.min(100, (questionTimeLeft / perQuestionTimerSeconds) * 100))}%`,
+            }}
+          />
+        </div>
+      )}
 
       {/* ================= MAIN BLUEBOOK TEST WORKSPACE ================= */}
       {(() => {
