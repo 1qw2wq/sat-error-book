@@ -594,3 +594,191 @@ export async function importFullDatabase(data: any): Promise<ImportResult> {
   return { errorsImported, vocabImported };
 }
 
+// =========================================================================
+// PRACTICE BUILDER PRESETS & HISTORY PERSISTENCE (Zero Data Loss)
+// =========================================================================
+
+import { PracticePreset, PracticeHistoryItem } from '@/types/sat';
+
+const PRESETS_STORAGE_KEY = 'sat_practice_builder_presets_v1';
+const HISTORY_STORAGE_KEY = 'sat_practice_builder_history_v1';
+
+export function getDefaultPracticePresets(): PracticePreset[] {
+  return [
+    {
+      id: 'preset-vocab-blitz',
+      title: 'Vocabulary & Context Precision',
+      description: 'Master Words in Context with high-yield academic vocabulary questions.',
+      section: 'Reading and Writing',
+      domain: 'Craft & Structure: Words in Context',
+      module: 'All',
+      year: 'All',
+      exam: 'All',
+      difficultyRange: [5, 10],
+      type: 'Single Choice',
+      onlyGraphs: false,
+      questionCount: 15,
+      timerMode: 'speed60',
+      deliveryMode: 'instant_feedback',
+      createdAt: '2026-01-01T00:00:00.000Z',
+    },
+    {
+      id: 'preset-grammar-mastery',
+      title: 'Standard English Conventions Drill',
+      description: 'Sentence boundaries, subject-verb agreement, and punctuation rules.',
+      section: 'Reading and Writing',
+      domain: 'Standard English Conventions (Grammar & Punctuation)',
+      module: 'All',
+      year: 'All',
+      exam: 'All',
+      difficultyRange: [4, 10],
+      type: 'Single Choice',
+      onlyGraphs: false,
+      questionCount: 20,
+      timerMode: 'official',
+      deliveryMode: 'exam',
+      createdAt: '2026-01-01T00:00:00.000Z',
+    },
+    {
+      id: 'preset-math-hard-gridin',
+      title: 'Hard Math Student-Produced Responses',
+      description: 'Tackle high-difficulty grid-in / free response questions with zero guessing room.',
+      section: 'Math',
+      domain: 'All',
+      module: 'Module 2',
+      year: 'All',
+      exam: 'All',
+      difficultyRange: [7, 10],
+      type: 'Fill-in-the-Blank / Free Response',
+      onlyGraphs: false,
+      questionCount: 12,
+      timerMode: 'official',
+      deliveryMode: 'instant_feedback',
+      createdAt: '2026-01-01T00:00:00.000Z',
+    },
+    {
+      id: 'preset-geom-trig-visuals',
+      title: 'Geometry & Data Visuals Sprint',
+      description: 'Only questions with diagrams, figures, coordinate planes, and geometric models.',
+      section: 'Math',
+      domain: 'Geometry & Trigonometry',
+      module: 'All',
+      year: 'All',
+      exam: 'All',
+      difficultyRange: [5, 10],
+      type: 'All',
+      onlyGraphs: true,
+      questionCount: 10,
+      timerMode: 'official',
+      deliveryMode: 'exam',
+      createdAt: '2026-01-01T00:00:00.000Z',
+    },
+    {
+      id: 'preset-elite-800-booster',
+      title: 'Elite 800 Adaptive Challenge (Tier 8-10)',
+      description: 'Toughest questions across Advanced Math, Inferences, and Rhetorical Synthesis.',
+      section: 'All',
+      domain: 'All',
+      module: 'Module 2',
+      year: 'All',
+      exam: 'All',
+      difficultyRange: [8, 10],
+      type: 'All',
+      onlyGraphs: false,
+      questionCount: 20,
+      timerMode: 'official',
+      deliveryMode: 'exam',
+      createdAt: '2026-01-01T00:00:00.000Z',
+    },
+  ];
+}
+
+export function getSavedPracticePresets(): PracticePreset[] {
+  if (typeof window === 'undefined') return getDefaultPracticePresets();
+  try {
+    const raw = localStorage.getItem(PRESETS_STORAGE_KEY);
+    if (!raw) {
+      const defaults = getDefaultPracticePresets();
+      localStorage.setItem(PRESETS_STORAGE_KEY, JSON.stringify(defaults));
+      return defaults;
+    }
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      return parsed;
+    }
+    return getDefaultPracticePresets();
+  } catch (err) {
+    console.error('Failed to load practice presets from localStorage:', err);
+    return getDefaultPracticePresets();
+  }
+}
+
+export function savePracticePreset(preset: PracticePreset): PracticePreset[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const current = getSavedPracticePresets();
+    const existingIdx = current.findIndex((p) => p.id === preset.id);
+    let updated: PracticePreset[];
+    if (existingIdx >= 0) {
+      updated = [...current];
+      updated[existingIdx] = preset;
+    } else {
+      updated = [preset, ...current];
+    }
+    localStorage.setItem(PRESETS_STORAGE_KEY, JSON.stringify(updated));
+    return updated;
+  } catch (err) {
+    console.error('Failed to save practice preset to localStorage:', err);
+    return [];
+  }
+}
+
+export function deletePracticePreset(id: string): PracticePreset[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const current = getSavedPracticePresets();
+    const updated = current.filter((p) => p.id !== id);
+    localStorage.setItem(PRESETS_STORAGE_KEY, JSON.stringify(updated));
+    return updated;
+  } catch (err) {
+    console.error('Failed to delete practice preset from localStorage:', err);
+    return [];
+  }
+}
+
+export function getPracticeHistory(): PracticeHistoryItem[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(HISTORY_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    console.error('Failed to load practice history from localStorage:', err);
+    return [];
+  }
+}
+
+export function addPracticeHistoryItem(item: PracticeHistoryItem): PracticeHistoryItem[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const current = getPracticeHistory();
+    const updated = [item, ...current].slice(0, 30); // Keep last 30 drills
+    localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(updated));
+    return updated;
+  } catch (err) {
+    console.error('Failed to save practice history to localStorage:', err);
+    return [];
+  }
+}
+
+export function clearPracticeHistory(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.removeItem(HISTORY_STORAGE_KEY);
+  } catch (err) {
+    console.error('Failed to clear practice history:', err);
+  }
+}
+
+

@@ -15,8 +15,8 @@ import {
 import { UserStats } from '@/types/sat';
 
 interface NavbarProps {
-  currentTab: 'dashboard' | 'review' | 'vocab' | 'directory';
-  onTabChange: (tab: 'dashboard' | 'review' | 'vocab' | 'directory') => void;
+  currentTab: 'dashboard' | 'review' | 'vocab' | 'directory' | 'bank';
+  onTabChange: (tab: 'dashboard' | 'review' | 'vocab' | 'directory' | 'bank') => void;
   stats: UserStats;
   dueCount: number;
   vocabCount?: number;
@@ -115,6 +115,21 @@ export default function Navbar({
           >
             <BookOpen className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Error Directory</span>
+          </button>
+
+          <button
+            onClick={() => onTabChange('bank')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all ${
+              currentTab === 'bank'
+                ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-xs'
+                : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5 text-emerald-500" />
+            <span>Question Bank</span>
+            <span className="px-1.5 py-0.2 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-mono text-[10px] font-bold ml-0.5 hidden lg:inline">
+              3.9k Qs
+            </span>
           </button>
         </nav>
 

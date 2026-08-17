@@ -137,7 +137,7 @@ export default function VocabQuizModal({
 
     if (q.direction === 'wordToDef') {
       if (q.wordItem.exampleSentence) {
-        passage = `### Context Sentence\n\n> "${q.wordItem.exampleSentence}"`;
+        passage = `"${q.wordItem.exampleSentence}"`;
       }
     } else {
       // defToWord direction: replace occurrences of the target word in the example sentence so the answer is not revealed
@@ -147,7 +147,7 @@ export default function VocabQuizModal({
           new RegExp(escapedWord, 'gi'),
           '________'
         );
-        passage = `### Context Sentence\n\n> "${sanitizedSentence}"`;
+        passage = `"${sanitizedSentence}"`;
       }
     }
 
@@ -405,6 +405,7 @@ export default function VocabQuizModal({
               questions={bluebookVocabQuestions}
               timerSeconds={0}
               perQuestionTimerSeconds={timerSecondsPerQ}
+              isUntimed={timerSecondsPerQ === 0}
               instantFeedback={false}
               disableHighlighting={true}
               onFinishTest={handleBluebookVocabFinish}

@@ -1,7 +1,8 @@
 'use client';
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import katex from 'katex';
+import { formatMathText } from '@/lib/mathFormatter';
 
 export interface HighlightItem {
   id: string;
@@ -126,9 +127,14 @@ export function highlightTextNodes(
 /**
  * High-precision MathRenderer using KaTeX with zero-crash fallback.
  * Formats inline math ($...$), block math ($$...$$), LaTeX commands (\frac, \sqrt, \le, etc.),
- * and converts unformatted algebraic expressions like (3/4)x or x^2 into clean math.
+ * and handles dollar currency amounts cleanly.
  */
 export default function MathRenderer({ text, className = '', highlights, onHighlightClick }: MathRendererProps) {
+  const processedText = useMemo(() => {
+    if (!text) return '';
+    return formatMathText(text);
+  }, [text]);
+
   if (!text) return null;
 
   // Render a math string using KaTeX safely
@@ -143,71 +149,126 @@ export default function MathRenderer({ text, className = '', highlights, onHighl
       const html = katex.renderToString(cleanLatex, {
         displayMode: isBlock,
         throwOnError: false,
+        output: 'html',
+        strict: false,
       });
 
       return (
         <span
           key={key}
-          className={isBlock ? 'block my-2 overflow-x-auto text-center' : 'inline-block px-0.5 mx-0.5 align-middle'}
+          className={isBlock ? 'block my-2 overflow-x-auto text-center' : 'inline-block px-0.5 align-baseline'}
           dangerouslySetInnerHTML={{ __html: html }}
         />
       );
     } catch {
       return (
-        <span key={key} className="inline font-mono text-indigo-600 dark:text-indigo-400 font-semibold">
+        <span key={key} className="inline font-mono text-slate-800 dark:text-slate-200 font-medium">
           {latex}
         </span>
       );
     }
   };
 
-  // Tokenize by math delimiters ($$...$$, $...$, `...`, or LaTeX macros)
-  const tokenRegex = /(\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\]|\$[\s\S]*?\$|\\\([\s\S]*?\\\)|`[\s\S]*?`|\\\b(?:frac|sqrt|le|ge|cdot|times|pm|infty|theta|pi|alpha|beta)\b\{?[^}\s]*\}?)/g;
+  // Protect currency amounts so they are not split as math delimiters
+  const protectedText = processedText.replace(/\$\s*(\d[\d,]*(?:\.\d+)?)\b/g, '__USD__$1');
 
-  const parts = text.split(tokenRegex);
+  // Tokenize by math delimiters ($$...$$, \[...\], $...$, \(...\), or `...`)
+  const tokenRegex = /(\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\]|\$[^\$]+?\$|\\\([\s\S]*?\\\)|`[^`]+?`)/g;
+
+  const parts = protectedText.split(tokenRegex);
 
   return (
     <span className={`inline-wrap leading-relaxed ${className}`}>
       {parts.map((part, index) => {
         if (!part) return null;
 
-        // Check for block math
-        if ((part.startsWith('$$') && part.endsWith('$$')) || (part.startsWith('\\[') && part.endsWith('\\]'))) {
-          const content = part.slice(2, -2);
+        // Check for block math ($$...$$ or \[...\])
+        if (
+          (part.startsWith('$$') && part.endsWith('$$')) ||
+          (part.startsWith('\\[') && part.endsWith('\\]'))
+        ) {
+          const content = part.slice(2, -2).replace(/__USD__/g, '$');
           return renderKatex(content, true, index);
         }
 
-        // Check for inline math
-        if (
-          (part.startsWith('$') && part.endsWith('$')) ||
-          (part.startsWith('\\(') && part.endsWith('\\)')) ||
-          (part.startsWith('`') && part.endsWith('`'))
-        ) {
-          const content = part.slice(1, -1);
+        // Check for inline math (\(...\))
+        if (part.startsWith('\\(') && part.endsWith('\\)')) {
+          const content = part.slice(2, -2).replace(/__USD__/g, '$');
           return renderKatex(content, false, index);
         }
 
-        // Check for raw LaTeX macro
-        if (part.startsWith('\\')) {
-          return renderKatex(part, false, index);
+        // Check for inline math ($...$ or `...`)
+        if (
+          (part.startsWith('$') && part.endsWith('$')) ||
+          (part.startsWith('`') && part.endsWith('`'))
+        ) {
+          const content = part.slice(1, -1).replace(/__USD__/g, '$');
+          return renderKatex(content, false, index);
         }
 
-        // Plain prose with potential inline equations like y = 3x - 5 or x^2
-        return <span key={index}>{renderProseWithInlineMath(part, index, highlights, onHighlightClick)}</span>;
+        // Plain prose: restore currency and support HTML formatting & highlights
+        const restoredProse = part.replace(/__USD__/g, '$');
+        return <span key={index}>{renderProseWithFormatting(restoredProse, index, highlights, onHighlightClick)}</span>;
       })}
     </span>
   );
 }
 
-function renderProseWithInlineMath(
+function renderProseWithFormatting(
   prose: string,
   baseKey: number,
   highlights?: HighlightItem[],
   onHighlightClick?: (highlight: HighlightItem, e: React.MouseEvent) => void
 ) {
-  // Support HTML underline <u>...</u>, <b>...</b>, and Markdown **...** formatting in prose
-  const formatTagRegex = /(<u>[\s\S]*?<\/u>|<b>[\s\S]*?<\/b>|\*\*[\s\S]*?\*\*)/gi;
-  const tagParts = prose.split(formatTagRegex);
+  // Support newlines first if present
+  if (prose.includes('\n')) {
+    const lines = prose.split('\n');
+    return (
+      <>
+        {lines.map((line, lIdx) => (
+          <React.Fragment key={`line-${baseKey}-${lIdx}`}>
+            {lIdx > 0 && <br />}
+            {renderInlineProse(line, baseKey * 100 + lIdx, highlights, onHighlightClick)}
+          </React.Fragment>
+        ))}
+      </>
+    );
+  }
+
+  return renderInlineProse(prose, baseKey, highlights, onHighlightClick);
+}
+
+function renderInlineProse(
+  prose: string,
+  baseKey: number,
+  highlights?: HighlightItem[],
+  onHighlightClick?: (highlight: HighlightItem, e: React.MouseEvent) => void
+) {
+  let cleanProse = prose;
+
+  // Clean raw markdown headers if present at the start of the line (e.g., "### Context Sentence" -> "Context Sentence")
+  if (/^#{1,6}\s+/.test(cleanProse)) {
+    const headingText = cleanProse.replace(/^#{1,6}\s+/, '');
+    return (
+      <span key={`h-${baseKey}`} className="block font-bold text-slate-800 dark:text-slate-200 mb-1">
+        {renderInlineProse(headingText, baseKey * 10, highlights, onHighlightClick)}
+      </span>
+    );
+  }
+
+  // Clean raw markdown blockquote if present at start of line (e.g., "> \"text\"")
+  if (/^>\s+/.test(cleanProse)) {
+    const quoteText = cleanProse.replace(/^>\s+/, '');
+    return (
+      <span key={`bq-${baseKey}`} className="block italic text-slate-800 dark:text-slate-200 my-1 pl-2 border-l-2 border-slate-300 dark:border-slate-700">
+        {renderInlineProse(quoteText, baseKey * 10, highlights, onHighlightClick)}
+      </span>
+    );
+  }
+
+  // Support HTML underline <u>...</u>, <b>...</b>, and Markdown **...** / *...* formatting in prose
+  const formatTagRegex = /(<u>[\s\S]*?<\/u>|<b>[\s\S]*?<\/b>|\*\*[\s\S]*?\*\*|\*[^\*]+?\*|_[^_]+?_)/gi;
+  const tagParts = cleanProse.split(formatTagRegex);
 
   if (tagParts.length > 1) {
     return tagParts.map((tagPart, tIdx) => {
@@ -217,7 +278,7 @@ function renderProseWithInlineMath(
         const inner = tagPart.replace(/^<u>/i, '').replace(/<\/u>$/i, '');
         return (
           <span key={`u-${baseKey}-${tIdx}`} className="underline decoration-2 underline-offset-4 font-normal inline">
-            {renderProseWithInlineMath(inner, baseKey * 100 + tIdx, highlights, onHighlightClick)}
+            {renderInlineProse(inner, baseKey * 100 + tIdx, highlights, onHighlightClick)}
           </span>
         );
       }
@@ -226,7 +287,7 @@ function renderProseWithInlineMath(
         const inner = tagPart.replace(/^<b>/i, '').replace(/<\/b>$/i, '');
         return (
           <strong key={`b-${baseKey}-${tIdx}`} className="font-extrabold text-inherit inline">
-            {renderProseWithInlineMath(inner, baseKey * 100 + tIdx, highlights, onHighlightClick)}
+            {renderInlineProse(inner, baseKey * 100 + tIdx, highlights, onHighlightClick)}
           </strong>
         );
       }
@@ -235,49 +296,23 @@ function renderProseWithInlineMath(
         const inner = tagPart.slice(2, -2);
         return (
           <strong key={`bold-${baseKey}-${tIdx}`} className="font-extrabold text-inherit inline">
-            {renderProseWithInlineMath(inner, baseKey * 100 + tIdx, highlights, onHighlightClick)}
+            {renderInlineProse(inner, baseKey * 100 + tIdx, highlights, onHighlightClick)}
           </strong>
         );
       }
 
-      return renderMathSegments(tagPart, baseKey * 100 + tIdx, highlights, onHighlightClick);
+      if (/^\*[^\*]+?\*$/.test(tagPart) || /^_[^_]+?_$/.test(tagPart)) {
+        const inner = tagPart.slice(1, -1);
+        return (
+          <em key={`em-${baseKey}-${tIdx}`} className="italic text-inherit inline">
+            {renderInlineProse(inner, baseKey * 100 + tIdx, highlights, onHighlightClick)}
+          </em>
+        );
+      }
+
+      return highlightTextNodes(tagPart, highlights, onHighlightClick);
     });
   }
 
-  return renderMathSegments(prose, baseKey, highlights, onHighlightClick);
-}
-
-function renderMathSegments(
-  prose: string,
-  baseKey: number,
-  highlights?: HighlightItem[],
-  onHighlightClick?: (highlight: HighlightItem, e: React.MouseEvent) => void
-) {
-  // Matches expressions like y = -3x + 4, x^2 - 4x + 3 = 0, f(x), (2, -1), x^2
-  const exprRegex = /(\b(?:[a-zA-Z]\([a-zA-Z0-9\s,\+-]+\)|[a-zA-Z0-9_-]+\^[0-9a-zA-Z]+|\d*x\^2|\b[a-zA-Z]\s*=\s*[-+\d\/\*\.\(\)a-zA-Z]+|\b\d+[a-zA-Z]\s*[\+-]\s*\d+[a-zA-Z]\s*=\s*\d+)\b)/g;
-
-  const subParts = prose.split(exprRegex);
-  if (subParts.length <= 1) return highlightTextNodes(prose, highlights, onHighlightClick);
-
-  return subParts.map((sub, i) => {
-    if (exprRegex.test(sub)) {
-      try {
-        let latex = sub.trim();
-        if (!latex.includes('\\frac') && /\b\d+\/\d+\b/.test(latex)) {
-          latex = latex.replace(/\b(\d+)\/(\d+)\b/g, '\\frac{$1}{$2}');
-        }
-        const html = katex.renderToString(latex, { throwOnError: false });
-        return (
-          <span
-            key={`math-${baseKey}-${i}`}
-            className="inline-block px-0.5 mx-0.5 align-middle"
-            dangerouslySetInnerHTML={{ __html: html }}
-          />
-        );
-      } catch {
-        return <span key={`sub-${baseKey}-${i}`}>{highlightTextNodes(sub, highlights, onHighlightClick)}</span>;
-      }
-    }
-    return <span key={`sub-${baseKey}-${i}`}>{highlightTextNodes(sub, highlights, onHighlightClick)}</span>;
-  });
+  return highlightTextNodes(cleanProse, highlights, onHighlightClick);
 }

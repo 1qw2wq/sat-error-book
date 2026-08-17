@@ -486,6 +486,7 @@ export default function ErrorQuizModal({
               sectionName={`${filterSubject} Practice Test`}
               questions={bluebookQuestions}
               timerSeconds={timerMinutes > 0 ? timerMinutes * 60 : 0}
+              isUntimed={timerMinutes === 0}
               instantFeedback={examStyle === 'instant'}
               onFinishTest={handleBluebookFinish}
               onClose={onClose}

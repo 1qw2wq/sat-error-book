@@ -10,12 +10,13 @@ import ErrorDetailModal from '@/components/ErrorDetailModal';
 import UploadModal from '@/components/UploadModal';
 import VocabBank from '@/components/VocabBank';
 import ErrorQuizModal from '@/components/ErrorQuizModal';
+import QuestionBank from '@/components/QuestionBank';
 import { getAllErrors, getUserStats, getAllVocab } from '@/lib/db';
 import { SATErrorItem, UserStats, VocabItem } from '@/types/sat';
 import { Sparkles, Brain } from 'lucide-react';
 
 export default function HomePage() {
-  const [currentTab, setCurrentTab] = useState<'dashboard' | 'review' | 'vocab' | 'directory'>('dashboard');
+  const [currentTab, setCurrentTab] = useState<'dashboard' | 'review' | 'vocab' | 'directory' | 'bank'>('dashboard');
   const [errors, setErrors] = useState<SATErrorItem[]>([]);
   const [vocabList, setVocabList] = useState<VocabItem[]>([]);
   const [stats, setStats] = useState<UserStats>({
@@ -143,6 +144,7 @@ export default function HomePage() {
                 stats={stats}
                 onStartReview={handleStartReview}
                 onStartErrorTest={() => setIsErrorQuizOpen(true)}
+                onNavigateToBank={() => setCurrentTab('bank')}
                 onImageReady={handleImageReady}
                 onImagesReady={handleImagesReady}
               />
@@ -172,6 +174,10 @@ export default function HomePage() {
                 onRefreshData={refreshData}
                 onStartErrorTest={() => setIsErrorQuizOpen(true)}
               />
+            )}
+
+            {currentTab === 'bank' && (
+              <QuestionBank onRefreshData={refreshData} />
             )}
           </>
         )}

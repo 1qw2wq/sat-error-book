@@ -24,6 +24,7 @@ interface DashboardProps {
   stats: UserStats;
   onStartReview: (subjectFilter?: string, masteryFilter?: string) => void;
   onStartErrorTest?: () => void;
+  onNavigateToBank?: () => void;
   onImageReady: (dataUrl: string, mimeType: string) => void;
   onImagesReady?: (dataUrls: string[], mimeType?: string) => void;
 }
@@ -33,6 +34,7 @@ export default function Dashboard({
   stats,
   onStartReview,
   onStartErrorTest,
+  onNavigateToBank,
   onImageReady,
   onImagesReady,
 }: DashboardProps) {
@@ -272,6 +274,32 @@ export default function Dashboard({
           </div>
         </div>
       </div>
+
+      {/* Official SAT Question Bank Showcase Banner */}
+      {onNavigateToBank && (
+        <div className="p-6 rounded-3xl bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white shadow-lg border border-blue-800/60 flex flex-col md:flex-row items-center justify-between gap-6">
+          <div className="space-y-2 max-w-xl">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 text-xs font-bold uppercase tracking-wider">
+              <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+              <span>3,895 Authentic SAT Questions Added</span>
+            </div>
+            <h3 className="text-xl sm:text-2xl font-black text-white leading-snug">
+              Official SAT Past Exam Question Bank
+            </h3>
+            <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+              Browse 100 complete official exam sets from 2026, 2025 and past tests. Practice timed Bluebook sections or customize difficulty drills.
+            </p>
+          </div>
+
+          <button
+            onClick={onNavigateToBank}
+            className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-white font-extrabold text-sm shadow-md transition-all active:scale-95 shrink-0 cursor-pointer"
+          >
+            <span>Explore Question Bank</span>
+            <ArrowRight className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* Quick Launch Session by Subject */}
       <div className="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs space-y-4">
