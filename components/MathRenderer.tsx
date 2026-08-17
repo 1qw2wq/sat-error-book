@@ -19,6 +19,19 @@ interface MathRendererProps {
   onHighlightClick?: (highlight: HighlightItem, e: React.MouseEvent) => void;
 }
 
+// Check if a string is an image URL
+function isPureImageUrl(str: string): boolean {
+  if (!str) return false;
+  const s = str.trim();
+  if (/^https?:\/\/[^\s]+(?:\.(?:png|jpg|jpeg|gif|webp|svg|bmp)(?:\?.*)?|\/upload\/image\/[^\s]+)$/i.test(s)) {
+    return true;
+  }
+  if (/^data:image\/(?:png|jpeg|jpg|webp|gif|svg\+xml);base64,/i.test(s)) {
+    return true;
+  }
+  return false;
+}
+
 // Normalize strings for matching across smart quotes, dashes, and whitespace variations
 function normalizeText(str: string): string {
   return str
@@ -127,15 +140,37 @@ export function highlightTextNodes(
 /**
  * High-precision MathRenderer using KaTeX with zero-crash fallback.
  * Formats inline math ($...$), block math ($$...$$), LaTeX commands (\frac, \sqrt, \le, etc.),
- * and handles dollar currency amounts cleanly.
+ * handles dollar currency amounts cleanly, and natively renders diagram image URLs.
  */
 export default function MathRenderer({ text, className = '', highlights, onHighlightClick }: MathRendererProps) {
-  const processedText = useMemo(() => {
-    if (!text) return '';
-    return formatMathText(text);
+  const isImage = useMemo(() => {
+    if (!text) return false;
+    return isPureImageUrl(text.trim());
   }, [text]);
 
+  const processedText = useMemo(() => {
+    if (!text || isImage) return '';
+    return formatMathText(text);
+  }, [text, isImage]);
+
   if (!text) return null;
+
+  const rawTrimmed = text.trim();
+
+  // If the entire text is an image URL (e.g., in graph choice selections), render the image directly
+  if (isImage) {
+    return (
+      <span className={`inline-block my-1 ${className}`}>
+        <img
+          src={rawTrimmed}
+          alt="SAT Diagram / Option"
+          referrerPolicy="no-referrer"
+          className="max-h-48 md:max-h-56 max-w-full object-contain rounded-xl border border-slate-200 dark:border-slate-700 bg-white p-2 shadow-2xs transition-transform hover:scale-[1.02]"
+          loading="lazy"
+        />
+      </span>
+    );
+  }
 
   // Render a math string using KaTeX safely
   const renderKatex = (latex: string, isBlock = false, key: number) => {
@@ -169,46 +204,64 @@ export default function MathRenderer({ text, className = '', highlights, onHighl
     }
   };
 
-  // Protect currency amounts so they are not split as math delimiters
-  const protectedText = processedText.replace(/\$\s*(\d[\d,]*(?:\.\d+)?)\b/g, '__USD__$1');
+  // Tokenize string into math blocks vs plain prose
+  const tokens: { type: 'math' | 'prose'; text: string; isBlock?: boolean }[] = [];
+  const mathRegex = /(\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\$(?:\\begin\{[a-z*]+\}[\s\S]*?\\end\{[a-z*]+\}|[^$\n]+?)\$|`[^`]+?`|\\begin\{([a-z*]+)\}[\s\S]*?\\end\{\2\})/g;
 
-  // Tokenize by math delimiters ($$...$$, \[...\], $...$, \(...\), or `...`)
-  const tokenRegex = /(\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\]|\$[^\$]+?\$|\\\([\s\S]*?\\\)|`[^`]+?`)/g;
+  let lastIdx = 0;
+  let match: RegExpExecArray | null;
 
-  const parts = protectedText.split(tokenRegex);
+  while ((match = mathRegex.exec(processedText)) !== null) {
+    const start = match.index;
+    const fullMatch = match[0];
+
+    // Check if it's a false-positive $...$ matching between two standalone currency amounts in prose
+    // e.g. "$15 each and $20 total" -> naive regex matches "$15 each and $"
+    if (fullMatch.startsWith('$') && fullMatch.endsWith('$') && fullMatch.length > 2 && !fullMatch.includes('\\')) {
+      const inner = fullMatch.slice(1, -1);
+      if (/\b(?:and|each|the|for|per|is|was|were|of|in|to|with|from|total|cost|price|bought|spent|earned|saved|where|which|equation)\b/i.test(inner)) {
+        continue;
+      }
+    }
+
+    if (start > lastIdx) {
+      tokens.push({ type: 'prose', text: processedText.substring(lastIdx, start) });
+    }
+
+    const isBlock = (fullMatch.startsWith('$$') && fullMatch.endsWith('$$')) ||
+                    (fullMatch.startsWith('\\[') && fullMatch.endsWith('\\]')) ||
+                    (fullMatch.startsWith('\\begin{') && fullMatch.includes('\\end{'));
+
+    tokens.push({ type: 'math', text: fullMatch, isBlock });
+    lastIdx = mathRegex.lastIndex;
+  }
+
+  if (lastIdx < processedText.length) {
+    tokens.push({ type: 'prose', text: processedText.substring(lastIdx) });
+  }
 
   return (
     <span className={`inline-wrap leading-relaxed ${className}`}>
-      {parts.map((part, index) => {
-        if (!part) return null;
+      {tokens.map((token, index) => {
+        if (!token.text) return null;
 
-        // Check for block math ($$...$$ or \[...\])
-        if (
-          (part.startsWith('$$') && part.endsWith('$$')) ||
-          (part.startsWith('\\[') && part.endsWith('\\]'))
-        ) {
-          const content = part.slice(2, -2).replace(/__USD__/g, '$');
-          return renderKatex(content, true, index);
+        if (token.type === 'math') {
+          let content = token.text;
+          if (content.startsWith('$$') && content.endsWith('$$')) {
+            content = content.slice(2, -2);
+          } else if (content.startsWith('\\[') && content.endsWith('\\]')) {
+            content = content.slice(2, -2);
+          } else if (content.startsWith('\\(') && content.endsWith('\\)')) {
+            content = content.slice(2, -2);
+          } else if (content.startsWith('$') && content.endsWith('$')) {
+            content = content.slice(1, -1);
+          } else if (content.startsWith('`') && content.endsWith('`')) {
+            content = content.slice(1, -1);
+          }
+          return renderKatex(content, !!token.isBlock, index);
         }
 
-        // Check for inline math (\(...\))
-        if (part.startsWith('\\(') && part.endsWith('\\)')) {
-          const content = part.slice(2, -2).replace(/__USD__/g, '$');
-          return renderKatex(content, false, index);
-        }
-
-        // Check for inline math ($...$ or `...`)
-        if (
-          (part.startsWith('$') && part.endsWith('$')) ||
-          (part.startsWith('`') && part.endsWith('`'))
-        ) {
-          const content = part.slice(1, -1).replace(/__USD__/g, '$');
-          return renderKatex(content, false, index);
-        }
-
-        // Plain prose: restore currency and support HTML formatting & highlights
-        const restoredProse = part.replace(/__USD__/g, '$');
-        return <span key={index}>{renderProseWithFormatting(restoredProse, index, highlights, onHighlightClick)}</span>;
+        return <span key={index}>{renderProseWithFormatting(token.text, index, highlights, onHighlightClick)}</span>;
       })}
     </span>
   );
@@ -266,9 +319,59 @@ function renderInlineProse(
     );
   }
 
+  // Support Markdown Images !\[alt\](url) or embedded pure image URLs
+  const imgRegex = /(!\[.*?\]\(https?:\/\/[^\s\)]+\)|https?:\/\/[^\s]+(?:\.(?:png|jpg|jpeg|gif|webp|svg)|\/upload\/image\/[^\s]+))/gi;
+  if (imgRegex.test(cleanProse)) {
+    const imgParts = cleanProse.split(imgRegex);
+    return (
+      <span key={`img-group-${baseKey}`} className="inline">
+        {imgParts.map((subPart, sIdx) => {
+          if (!subPart) return null;
+          if (/^!\[(.*?)\]\((https?:\/\/[^\s\)]+)\)$/i.test(subPart)) {
+            const m = subPart.match(/^!\[(.*?)\]\((https?:\/\/[^\s\)]+)\)$/i);
+            const alt = m?.[1] || 'SAT Diagram';
+            const url = m?.[2] || '';
+            return (
+              <img
+                key={`md-img-${baseKey}-${sIdx}`}
+                src={url}
+                alt={alt}
+                referrerPolicy="no-referrer"
+                className="max-h-52 object-contain rounded-xl border border-slate-200 dark:border-slate-700 bg-white p-2 my-2 inline-block"
+                loading="lazy"
+              />
+            );
+          }
+          if (isPureImageUrl(subPart)) {
+            return (
+              <img
+                key={`url-img-${baseKey}-${sIdx}`}
+                src={subPart}
+                alt="SAT Diagram"
+                referrerPolicy="no-referrer"
+                className="max-h-52 object-contain rounded-xl border border-slate-200 dark:border-slate-700 bg-white p-2 my-2 inline-block"
+                loading="lazy"
+              />
+            );
+          }
+          return renderFormattedProseLeaves(subPart, baseKey * 100 + sIdx, highlights, onHighlightClick);
+        })}
+      </span>
+    );
+  }
+
+  return renderFormattedProseLeaves(cleanProse, baseKey, highlights, onHighlightClick);
+}
+
+function renderFormattedProseLeaves(
+  prose: string,
+  baseKey: number,
+  highlights?: HighlightItem[],
+  onHighlightClick?: (highlight: HighlightItem, e: React.MouseEvent) => void
+) {
   // Support HTML underline <u>...</u>, <b>...</b>, and Markdown **...** / *...* formatting in prose
   const formatTagRegex = /(<u>[\s\S]*?<\/u>|<b>[\s\S]*?<\/b>|\*\*[\s\S]*?\*\*|\*[^\*]+?\*|_[^_]+?_)/gi;
-  const tagParts = cleanProse.split(formatTagRegex);
+  const tagParts = prose.split(formatTagRegex);
 
   if (tagParts.length > 1) {
     return tagParts.map((tagPart, tIdx) => {
@@ -278,7 +381,7 @@ function renderInlineProse(
         const inner = tagPart.replace(/^<u>/i, '').replace(/<\/u>$/i, '');
         return (
           <span key={`u-${baseKey}-${tIdx}`} className="underline decoration-2 underline-offset-4 font-normal inline">
-            {renderInlineProse(inner, baseKey * 100 + tIdx, highlights, onHighlightClick)}
+            {renderFormattedProseLeaves(inner, baseKey * 100 + tIdx, highlights, onHighlightClick)}
           </span>
         );
       }
@@ -287,7 +390,7 @@ function renderInlineProse(
         const inner = tagPart.replace(/^<b>/i, '').replace(/<\/b>$/i, '');
         return (
           <strong key={`b-${baseKey}-${tIdx}`} className="font-extrabold text-inherit inline">
-            {renderInlineProse(inner, baseKey * 100 + tIdx, highlights, onHighlightClick)}
+            {renderFormattedProseLeaves(inner, baseKey * 100 + tIdx, highlights, onHighlightClick)}
           </strong>
         );
       }
@@ -296,7 +399,7 @@ function renderInlineProse(
         const inner = tagPart.slice(2, -2);
         return (
           <strong key={`bold-${baseKey}-${tIdx}`} className="font-extrabold text-inherit inline">
-            {renderInlineProse(inner, baseKey * 100 + tIdx, highlights, onHighlightClick)}
+            {renderFormattedProseLeaves(inner, baseKey * 100 + tIdx, highlights, onHighlightClick)}
           </strong>
         );
       }
@@ -305,7 +408,7 @@ function renderInlineProse(
         const inner = tagPart.slice(1, -1);
         return (
           <em key={`em-${baseKey}-${tIdx}`} className="italic text-inherit inline">
-            {renderInlineProse(inner, baseKey * 100 + tIdx, highlights, onHighlightClick)}
+            {renderFormattedProseLeaves(inner, baseKey * 100 + tIdx, highlights, onHighlightClick)}
           </em>
         );
       }
@@ -314,5 +417,5 @@ function renderInlineProse(
     });
   }
 
-  return highlightTextNodes(cleanProse, highlights, onHighlightClick);
+  return highlightTextNodes(prose, highlights, onHighlightClick);
 }

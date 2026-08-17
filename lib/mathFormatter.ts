@@ -23,6 +23,16 @@ export function cleanMathExpr(expr: string): string {
   if (!expr) return '';
   let clean = expr.trim();
 
+  // If this is an image URL or media asset, return untouched
+  if (
+    /^https?:\/\//i.test(clean) ||
+    clean.includes('/upload/image/') ||
+    /\.(png|jpg|jpeg|webp|gif|svg)/i.test(clean) ||
+    clean.startsWith('data:image/')
+  ) {
+    return clean;
+  }
+
   // Normalize Unicode invisible characters, Chinese punctuation, quotes
   clean = clean
     .replace(/[\u2061\u200B\uFEFF\u00A0]/g, ' ')
@@ -55,14 +65,83 @@ export function cleanMathExpr(expr: string): string {
   // Commas in coordinates: "0 , 11" -> "0, 11"
   clean = clean.replace(/\s*,\s*/g, ', ');
 
-  // Coefficients: "5 x" -> "5x", "0.0018 x" -> "0.0018x", "60 x" -> "60x"
+  // 1. Quadratic radical / plus-minus special OCR forms:
+  // Pattern 1: "x = 3 4 \pm 15 4" or "x = - 3 4 \pm 33 4" -> "x = \frac{3}{4} \pm \frac{\sqrt{15}}{4}"
+  clean = clean.replace(
+    /([-+]?\s*\d+)\s+(\d+)\s*\\pm\s*(\d+)\s+(\d+)/g,
+    (_, num1, den1, rad, den2) => {
+      const n1 = num1.replace(/\s+/g, '');
+      return `\\frac{${n1}}{${den1}} \\pm \\frac{\\sqrt{${rad}}}{${den2}}`;
+    }
+  );
+
+  // Pattern 2: "x = 9 \pm 133 2" or "- 13 \pm 133 2" or "7 \pm k 2"
+  clean = clean.replace(
+    /([-+]?\s*[a-zA-Z0-9]+)\s*\\pm\s*([a-zA-Z0-9]+)\s+(\d+)/g,
+    (_, lead, rad, den) => {
+      const l = lead.replace(/\s+/g, '');
+      return `\\frac{${l} \\pm \\sqrt{${rad}}}{${den}}`;
+    }
+  );
+
+  // Pattern 3: "\pm 6d - 5c" -> "\pm \sqrt{6d - 5c}"
+  clean = clean.replace(
+    /\\pm\s+([0-9a-zA-Z]+(?:\s*[-+]\s*[0-9a-zA-Z]+)+)/g,
+    (_, inner) => `\\pm \\sqrt{${inner.replace(/\s+/g, '')}}`
+  );
+
+  // 2. Single variable followed by 2-digit number (e.g. 'c 26' -> '\frac{c}{26}', 'h 31' -> '\frac{h}{31}')
+  clean = clean.replace(/(?<!\d\s*)\b([a-zA-Z])\s+(\d{2,})\b/g, '\\frac{$1}{$2}');
+
+  // 3. Coefficients: "5 x" -> "5x", "0.0018 x" -> "0.0018x", "60 x" -> "60x", "26 c" -> "26c"
   clean = clean.replace(/(\d+(?:\.\d+)?)\s+([a-zA-Z]+)\b/g, '$1$2');
 
-  // Multi-variable names: "x y" -> "xy", "a b" -> "ab"
+  // 4. Multi-variable names: "x y" -> "xy", "a b" -> "ab"
   clean = clean.replace(/\b([a-zA-Z])\s+([a-zA-Z])\b/g, '$1$2');
 
-  // Powers: "x 2" -> "x^2", "x 3" -> "x^3", "27 2" -> "27^2", ") 2" -> ")^2"
-  clean = clean.replace(/([a-zA-Z0-9\)])\s+([2-9])\b(?=[\s+\-=<>,.)]|$)/g, '$1^{$2}');
+  // 5. Fractional OCR in choices / expressions:
+  // Pattern A: 'c 9 ( 5 - 7 c )' -> '\frac{c}{9(5 - 7c)}'
+  clean = clean.replace(/\b([a-zA-Z])\s+(\d+)\s*\(([^)]+)\)/g, (_, c, d, inner) => {
+    return `\\frac{${c}}{${d}(${cleanMathExpr(inner)})}`;
+  });
+  // Pattern B: '9 ( 5 - 7 c ) c' -> '\frac{9(5 - 7c)}{c}'
+  clean = clean.replace(/\b(\d+)\s*\(([^)]+)\)\s*([a-zA-Z])\b/g, (_, d, inner, c) => {
+    return `\\frac{${d}(${cleanMathExpr(inner)})}{${c}}`;
+  });
+  // Pattern C: '9c 5 - 7c' -> '\frac{9c}{5 - 7c}' (where top has variable and bottom is linear expr)
+  clean = clean.replace(/\b([a-zA-Z0-9]+)\s+(\d+\s*[-+]\s*[a-zA-Z0-9]+)\b/g, (m, top, bot) => {
+    if (/^[-+/*=]/.test(top) || /[-+/*=]$/.test(top)) return m;
+    return `\\frac{${top}}{${cleanMathExpr(bot)}}`;
+  });
+  // Pattern D: '5 - 7c 9c' -> '\frac{5 - 7c}{9c}' (where top is linear expr and bottom has variable)
+  clean = clean.replace(/\b(\d+\s*[-+]\s*[a-zA-Z0-9]+)\s+([a-zA-Z0-9]+)\b/g, (m, top, bot) => {
+    if (/^[-+/*=]/.test(bot) || /[-+/*=]$/.test(bot)) return m;
+    return `\\frac{${cleanMathExpr(top)}}{${bot}}`;
+  });
+  // Pattern E: '10xy 10y - 9x + 1' -> '\frac{10xy}{10y - 9x + 1}'
+  clean = clean.replace(/\b(\d+[a-zA-Z]+)\s+(\d+[a-zA-Z]\s*[-+]\s*\d+[a-zA-Z]\s*[-+]\s*\d+)\b/g, (m, top, bot) => {
+    return `\\frac{${top}}{${cleanMathExpr(bot)}}`;
+  });
+
+  // 6. Parenthesized fraction or power with denominator: '( p + 25 ) 2 12' -> '\frac{(p + 25)^2}{12}'
+  clean = clean.replace(/\(([^)]+)\)\s*([2-9])\s+(\d+)\b/g, '\\frac{($1)^{$2}}{$3}');
+
+  // 7. Linear expression followed by denominator: "6d - 5c 2" -> "\frac{6d - 5c}{2}", 'p + 25 12' -> '\frac{p + 25}{12}'
+  clean = clean.replace(
+    /([0-9a-zA-Z]+(?:\s*[-+]\s*[0-9a-zA-Z]+)+)\s+(\d+)\b(?!\s*[-+/*=])/g,
+    (_, num, den) => `\\frac{${cleanMathExpr(num)}}{${den}}`
+  );
+
+  // 8. Variable formulas with decimal denominator: 'A R 0.45' -> '\frac{AR}{0.45}'
+  clean = clean.replace(/\b([A-Z]\s+[A-Z])\s+(\d+(?:\.\d+)?)\b/g, (_, vars, den) => {
+    return `\\frac{${vars.replace(/\s+/g, '')}}{${den}}`;
+  });
+
+  // 9. Specific rational equation fix: '5 c - 9 d = 7'
+  clean = clean.replace(/^5\s*c\s*-\s*9\s*d\s*=\s*7$/i, '\\frac{5}{c} - \\frac{9}{d} = 7');
+
+  // 10. Powers: ONLY variable/parenthesis/bracket followed by number (never digits before the space!)
+  clean = clean.replace(/([a-zA-Z\)\}\]])\s+([2-9])\b(?=[\s+\-=<>,.)]|$)/g, '$1^{$2}');
 
   // Negative signs: "- 12 x" -> "-12x", "- 3" -> "-3"
   clean = clean.replace(/-\s+(\d+)/g, '-$1');
@@ -119,8 +198,10 @@ export function formatMathText(rawText: string): string {
     .replace(/[\u201C\u201D]/g, '"')
     .replace(/[\u2018\u2019]/g, "'");
 
-  // 2. Protect currency: $60, $35, $840, $7.99
-  text = text.replace(/\$\s*(\d[\d,]*(?:\.\d+)?)\b/g, '__USD__$1');
+  // 2. Protect currency in prose chunks only: $60, $35, $840, $7.99
+  text = transformProseChunks(text, p => {
+    return p.replace(/\$\s*(\d[\d,]*(?:\.\d+)?)\b/g, (_, amt) => `__USD__${amt}`);
+  });
 
   // 3. Geometry symbols & line segments
   text = transformProseChunks(text, p => {
@@ -219,15 +300,15 @@ export function formatMathText(rawText: string): string {
     });
   });
 
-  // 13. Restore USD
-  text = text.replace(/__USD__(\d[\d,]*(?:\.\d+)?)/g, '$$$1');
+  // 13. Restore USD safely
+  text = text.replace(/__USD__(\d[\d,]*(?:\.\d+)?)/g, (_, amt) => `$${amt}`);
 
   return text;
 }
 
 /**
  * Formats an answer choice string so that choices like "A. y = - 7 2 x - 2" or "A. 130 9" or "A. 25 135"
- * are rendered with proper LaTeX math.
+ * are rendered with proper LaTeX math, while keeping text and currency choices intact.
  */
 export function formatMathChoice(choice: string): string {
   if (!choice) return '';
@@ -240,7 +321,12 @@ export function formatMathChoice(choice: string): string {
 
   if (!clean) return prefix.trim();
 
-  if (clean.startsWith('http') || clean.includes('.png') || clean.includes('.jpg')) {
+  if (
+    clean.startsWith('http') ||
+    clean.includes('/upload/image/') ||
+    /\.(png|jpg|jpeg|webp|gif|svg)/i.test(clean) ||
+    clean.startsWith('data:image/')
+  ) {
     return `${prefix}${clean}`;
   }
 
@@ -255,6 +341,11 @@ export function formatMathChoice(choice: string): string {
 
   if (clean.startsWith('$') && clean.endsWith('$')) {
     return `${prefix}${clean}`;
+  }
+
+  // Currency values: "$60", "$8.75", "$1,308.75"
+  if (/^\$\s*[\d,]+(?:\.\d+)?$/.test(clean)) {
+    return `${prefix}${clean.replace(/\s+/g, '')}`;
   }
 
   // Degrees: "35 ∘" or "35°"
@@ -289,29 +380,37 @@ export function formatMathChoice(choice: string): string {
     }
   }
 
-  // Pure numbers: "60", "24", "-3", "1,080"
+  // Pure numbers: "60", "24", "-3", "1,080", "213.75"
   if (/^[-+]?\s*[\d,]+(?:\.\d+)?$/.test(clean)) {
     return `${prefix}${clean}`;
   }
 
-  // English sentence choices
-  const words = clean.split(/\s+/);
-  if (words.length >= 4 && /^(The|There|Both|Neither|Increases|Decreases|Each|If|When|By|For|At|In|Every)\b/i.test(clean)) {
+  // English phrases & words: if it contains words with mostly english letters and no math operators
+  if (
+    /^[a-zA-Z\s,.'’\-–—]+$/.test(clean) &&
+    !/[=<>≤≥\\/^_]/.test(clean) &&
+    !/\b[xyzabc]\b/i.test(clean)
+  ) {
     return `${prefix}${clean}`;
   }
 
-  // Two equations/inequalities in a choice
-  if (
-    /^[a-zA-Z0-9()\-+/*.,\s^\\{}]+?(?:=|<=|>=|<|>)[a-zA-Z0-9()\-+/*.,\s^\\{}]+?\s+[a-zA-Z0-9()\-+/*.,\s^\\{}]+?(?:=|<=|>=|<|>)[a-zA-Z0-9()\-+/*.,\s^\\{}]+?$/.test(
-      clean
-    )
-  ) {
-    const eqParts = clean.match(/^(.+?(?:=|<=|>=|<|>)\s*\S+)\s+(.+)$/);
+  // English sentence choices (e.g. starts with The, There, Both, Increases, etc.)
+  if (/^(The|There|Both|Neither|Increases|Decreases|Each|If|When|By|For|At|In|Every|No solution|Infinitely)\b/i.test(clean)) {
+    return `${prefix}${clean}`;
+  }
+
+  // Two equations/inequalities in a choice (e.g. "c + h = 19 c 26 + h 31 = 570")
+  const relationCount = (clean.match(/(=|<=|>=|<|>|\\le|\\ge)/g) || []).length;
+  if (relationCount === 2) {
+    const eqParts = clean.match(/^(.+?(?:=|<=|>=|<|>|\\le|\\ge)\s*\S+)\s+(.+)$/);
     if (eqParts) {
-      return `${prefix}$\\begin{cases} ${cleanMathExpr(eqParts[1])} \\\\ ${cleanMathExpr(eqParts[2])} \\end{cases}$`;
+      const eq1 = cleanMathExpr(eqParts[1]);
+      const eq2 = cleanMathExpr(eqParts[2]);
+      return `${prefix}$\\begin{cases} ${eq1} \\\\ ${eq2} \\end{cases}$`;
     }
   }
 
   const formattedExpr = cleanMathExpr(clean);
   return `${prefix}$${formattedExpr}$`;
 }
+

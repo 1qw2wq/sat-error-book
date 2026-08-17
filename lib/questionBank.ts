@@ -71,13 +71,19 @@ export function formatSelections(
   isMath = false,
   graphs?: string[] | string | null
 ): string[] {
-  // If graphs has 4 images and selections are empty or dummy letter choices ['A.', 'B.', 'C.', 'D.']
-  if (
-    Array.isArray(graphs) &&
-    graphs.length === 4 &&
-    (!selections || selections.length === 0 || selections.every(s => !s || /^[A-Da-d][.)\s]*$/.test(s.trim())))
-  ) {
+  const isDummySelections =
+    !selections ||
+    selections.length === 0 ||
+    selections.every((s) => !s || /^[A-Da-d][.)\s]*$/.test(s.trim()));
+
+  // Case 1: graphs has 4 images and selections are empty/dummy letters
+  if (Array.isArray(graphs) && graphs.length === 4 && isDummySelections) {
     return graphs;
+  }
+
+  // Case 2: graphs has 5 images (item 0 is stem diagram, items 1-4 are choice images)
+  if (Array.isArray(graphs) && graphs.length === 5 && isDummySelections) {
+    return graphs.slice(1, 5);
   }
 
   if (!selections || !Array.isArray(selections) || selections.length === 0) {
@@ -85,8 +91,7 @@ export function formatSelections(
   }
 
   // If choices are dummy placeholders like ["A.", "B.", "C.", "D."], treat as empty (Grid-In numeric question)
-  const isAllDummyLetters = selections.every(s => !s || /^[A-Da-d][.)\s]*$/.test(s.trim()));
-  if (isAllDummyLetters) {
+  if (isDummySelections) {
     return [];
   }
 
@@ -118,17 +123,22 @@ export function transformRawToBluebookQuestion(
   const isMath = raw.section === 'Math';
   const { passageText, questionPrompt } = splitPassageAndPrompt(raw.question, raw.section);
 
-  const has4GraphChoices =
-    Array.isArray(raw.graphs) &&
-    raw.graphs.length === 4 &&
-    (!raw.selections || raw.selections.length === 0 || raw.selections.every(s => !s || /^[A-Da-d][.)\s]*$/.test(s.trim())));
+  const isDummySelections =
+    !raw.selections ||
+    raw.selections.length === 0 ||
+    raw.selections.every((s) => !s || /^[A-Da-d][.)\s]*$/.test(s.trim()));
+
+  const has4GraphChoices = Array.isArray(raw.graphs) && raw.graphs.length === 4 && isDummySelections;
+  const has5GraphChoices = Array.isArray(raw.graphs) && raw.graphs.length === 5 && isDummySelections;
 
   const choices = formatSelections(raw.selections, isMath, raw.graphs);
   const isGridIn = raw.question_type !== 'Single Choice' || choices.length === 0;
 
-  // Extract diagram/graph image (only if not used as choice images)
+  // Extract diagram/graph image for the question stem
   let graphUrl: string | undefined = undefined;
-  if (!has4GraphChoices && raw.graphs) {
+  if (has5GraphChoices && Array.isArray(raw.graphs)) {
+    graphUrl = raw.graphs[0];
+  } else if (!has4GraphChoices && raw.graphs) {
     if (Array.isArray(raw.graphs) && raw.graphs.length > 0) {
       graphUrl = raw.graphs[0];
     } else if (typeof raw.graphs === 'string' && raw.graphs.trim().length > 0) {
@@ -187,10 +197,13 @@ export function transformRawToErrorItem(
   const isMath = raw.section === 'Math';
   const { passageText, questionPrompt } = splitPassageAndPrompt(raw.question, raw.section);
 
-  const has4GraphChoices =
-    Array.isArray(raw.graphs) &&
-    raw.graphs.length === 4 &&
-    (!raw.selections || raw.selections.length === 0 || raw.selections.every(s => !s || /^[A-Da-d][.)\s]*$/.test(s.trim())));
+  const isDummySelections =
+    !raw.selections ||
+    raw.selections.length === 0 ||
+    raw.selections.every((s) => !s || /^[A-Da-d][.)\s]*$/.test(s.trim()));
+
+  const has4GraphChoices = Array.isArray(raw.graphs) && raw.graphs.length === 4 && isDummySelections;
+  const has5GraphChoices = Array.isArray(raw.graphs) && raw.graphs.length === 5 && isDummySelections;
 
   const choices = formatSelections(raw.selections, isMath, raw.graphs);
   const answerChoices: AnswerChoice[] = ['A', 'B', 'C', 'D'].map((label, idx) => {
@@ -200,7 +213,9 @@ export function transformRawToErrorItem(
 
   // Extract graph image (only if not 4-choice images)
   let graphUrl: string | undefined = undefined;
-  if (!has4GraphChoices && raw.graphs) {
+  if (has5GraphChoices && Array.isArray(raw.graphs)) {
+    graphUrl = raw.graphs[0];
+  } else if (!has4GraphChoices && raw.graphs) {
     if (Array.isArray(raw.graphs) && raw.graphs.length > 0) {
       graphUrl = raw.graphs[0];
     } else if (typeof raw.graphs === 'string' && raw.graphs.trim().length > 0) {

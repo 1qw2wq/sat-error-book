@@ -1772,7 +1772,24 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
               {browserQuestions.map((q) => {
                 const isExpanded = !!expandedExplanations[q.question_id];
                 const isAdded = !!addedToErrorBook[q.question_id];
-                const choices = formatSelections(q.selections);
+                const isDummySelections =
+                  !q.selections ||
+                  q.selections.length === 0 ||
+                  q.selections.every((s) => !s || /^[A-Da-d][.)\s]*$/.test(s.trim()));
+                const has4GraphChoices = Array.isArray(q.graphs) && q.graphs.length === 4 && isDummySelections;
+                const has5GraphChoices = Array.isArray(q.graphs) && q.graphs.length === 5 && isDummySelections;
+                const choices = formatSelections(q.selections, q.section === 'Math', q.graphs);
+
+                let stemGraphUrl: string | undefined = undefined;
+                if (has5GraphChoices && Array.isArray(q.graphs)) {
+                  stemGraphUrl = q.graphs[0];
+                } else if (!has4GraphChoices && q.graphs) {
+                  if (Array.isArray(q.graphs) && q.graphs.length > 0) {
+                    stemGraphUrl = q.graphs[0];
+                  } else if (typeof q.graphs === 'string' && q.graphs.trim().length > 0) {
+                    stemGraphUrl = q.graphs.trim();
+                  }
+                }
 
                 return (
                   <div
@@ -1821,6 +1838,18 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
                         </button>
                       </div>
                     </div>
+
+                    {/* Diagram/Graph if present */}
+                    {stemGraphUrl && (
+                      <div className="my-2 p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex justify-center shadow-2xs">
+                        <img
+                          src={stemGraphUrl}
+                          alt="SAT Diagram"
+                          referrerPolicy="no-referrer"
+                          className="max-h-60 object-contain rounded-lg"
+                        />
+                      </div>
+                    )}
 
                     {/* Question Content with MathRenderer */}
                     <div className="text-xs sm:text-sm text-slate-900 dark:text-slate-100 leading-relaxed font-serif">
