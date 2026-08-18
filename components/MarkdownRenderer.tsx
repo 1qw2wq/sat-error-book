@@ -96,36 +96,36 @@ export default function MarkdownRenderer({
               {renderChildrenWithMath(children)}
             </mark>
           ),
-          // SAT Styled Table Components in Clean Light Scheme
+          // SAT Styled Table Components
           table: ({ children }) => (
-            <div className="my-4 w-full overflow-x-auto rounded-xl border border-slate-300 bg-white shadow-xs">
-              <table className="w-full text-left text-sm border-collapse font-sans text-slate-900">
+            <div className="my-4 w-full overflow-x-auto rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xs">
+              <table className="w-full text-left text-sm border-collapse font-sans text-slate-900 dark:text-slate-100">
                 {children}
               </table>
             </div>
           ),
           thead: ({ children }) => (
-            <thead className="bg-slate-100 text-black font-extrabold border-b-2 border-slate-300">
+            <thead className="bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white font-extrabold border-b-2 border-slate-300 dark:border-slate-700">
               {children}
             </thead>
           ),
           tbody: ({ children }) => (
-            <tbody className="divide-y divide-slate-200 bg-white text-slate-900 font-medium">
+            <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-medium">
               {children}
             </tbody>
           ),
           tr: ({ children }) => (
-            <tr className="hover:bg-slate-50 transition-colors">
+            <tr className="hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors">
               {children}
             </tr>
           ),
           th: ({ children }) => (
-            <th className="px-4 py-2.5 font-extrabold text-black border-r border-slate-300 last:border-r-0 tracking-tight text-center sm:text-left whitespace-nowrap bg-slate-100">
+            <th className="px-4 py-2.5 font-extrabold text-slate-900 dark:text-white border-r border-slate-300 dark:border-slate-700 last:border-r-0 tracking-tight text-center sm:text-left whitespace-nowrap bg-slate-100 dark:bg-slate-800">
               {renderChildrenWithMath(children)}
             </th>
           ),
           td: ({ children }) => (
-            <td className="px-4 py-2.5 text-black border-r border-slate-200 last:border-r-0 align-middle text-center sm:text-left bg-white font-medium">
+            <td className="px-4 py-2.5 text-slate-900 dark:text-slate-100 border-r border-slate-200 dark:border-slate-700 last:border-r-0 align-middle text-center sm:text-left bg-white dark:bg-slate-900 font-medium">
               {renderChildrenWithMath(children)}
             </td>
           ),
@@ -155,7 +155,7 @@ export default function MarkdownRenderer({
             </h3>
           ),
           code: ({ children }) => (
-            <code className="px-1.5 py-0.5 rounded bg-slate-100 text-blue-900 font-mono text-xs">
+            <code className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-blue-900 dark:text-blue-300 font-mono text-xs">
               {children}
             </code>
           ),

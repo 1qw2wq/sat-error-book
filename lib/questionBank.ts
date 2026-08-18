@@ -184,6 +184,7 @@ export function transformRawToBluebookQuestion(
     subject: raw.section === 'Reading and Writing' ? 'Reading & Writing' : 'Math',
     subTopic,
     mistakeType: 'Concept Gap',
+    rawQuestion: raw,
   };
 }
 

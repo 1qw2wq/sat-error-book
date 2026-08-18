@@ -34,6 +34,9 @@ import MathRenderer from './MathRenderer';
 import GraphRenderer from './GraphRenderer';
 import MarkdownRenderer from './MarkdownRenderer';
 import { gradeStudentResponse, evaluateSATQuestionAnswer } from '../lib/answerGrading';
+import { saveError } from '../lib/db';
+import { transformRawToErrorItem } from '../lib/questionBank';
+import { SATErrorItem, RawSATQuestion } from '../types/sat';
 
 export interface BluebookQuestionItem {
   id: string;
@@ -49,6 +52,7 @@ export interface BluebookQuestionItem {
   subject?: string;
   subTopic?: string;
   mistakeType?: string;
+  rawQuestion?: RawSATQuestion;
 }
 
 export interface HighlightNote {
@@ -594,6 +598,68 @@ export default function BluebookTestShell({
     setSelectionPos(null);
   };
 
+  const [savedToErrorBook, setSavedToErrorBook] = useState<Record<number, boolean>>({});
+  const [isSavingError, setIsSavingError] = useState<Record<number, boolean>>({});
+
+  const handleCheckAnswer = (qIdx: number) => {
+    setCheckedQuestions((prev) => ({
+      ...prev,
+      [qIdx]: true,
+    }));
+  };
+
+  const handleRetryQuestion = (qIdx: number) => {
+    setAnswers((prev) => {
+      const next = { ...prev };
+      delete next[qIdx];
+      return next;
+    });
+    setCheckedQuestions((prev) => ({
+      ...prev,
+      [qIdx]: false,
+    }));
+  };
+
+  const handleSaveToErrorBook = async (qIdx: number) => {
+    const q = questions[qIdx];
+    if (!q || savedToErrorBook[qIdx]) return;
+    setIsSavingError((prev) => ({ ...prev, [qIdx]: true }));
+    try {
+      if (q.rawQuestion) {
+        const item = transformRawToErrorItem(q.rawQuestion, 'Saved from Practice & Learn Drill');
+        await saveError(item);
+      } else {
+        const errorItem: SATErrorItem = {
+          id: `err-${Date.now()}-${qIdx}`,
+          createdAt: new Date().toISOString(),
+          subject: (q.subject === 'Math' ? 'Math' : 'Reading & Writing') as any,
+          subTopic: q.subTopic || (q.subject === 'Math' ? 'Algebra' : 'Information & Ideas'),
+          passageText: q.passageText,
+          questionText: q.questionPrompt,
+          answerChoices: (q.choices || []).map((text, idx) => ({
+            label: String.fromCharCode(65 + idx),
+            text,
+          })),
+          correctAnswer: q.correctAnswer || 'A',
+          aiTakeaway: 'Practice drill review item',
+          explanation: q.explanation || '',
+          mistakeType: 'Concept Gap',
+          masteryStatus: 'Learning',
+          masteryLevel: 1,
+          nextReviewDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+          reviewHistory: [],
+          testSource: title || 'Practice Builder Drill',
+        };
+        await saveError(errorItem);
+      }
+      setSavedToErrorBook((prev) => ({ ...prev, [qIdx]: true }));
+    } catch (err) {
+      console.error('Failed to save error item:', err);
+    } finally {
+      setIsSavingError((prev) => ({ ...prev, [qIdx]: false }));
+    }
+  };
+
   const isChecked = Boolean(instantFeedback && checkedQuestions[currentIndex]);
 
   const toggleEliminateChoice = (qIdx: number, choiceIdx: number) => {
@@ -681,6 +747,12 @@ export default function BluebookTestShell({
             <span className="text-xs md:text-sm font-bold text-slate-900 tracking-tight">
               {activeModule.name}
             </span>
+            {instantFeedback && (
+              <span className="px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 text-[10px] font-extrabold flex items-center gap-1 border border-purple-200 shadow-2xs">
+                <Sparkles className="w-3 h-3 text-purple-600" />
+                <span>Practice & Learn Mode</span>
+              </span>
+            )}
           </div>
 
           <button
@@ -953,18 +1025,45 @@ export default function BluebookTestShell({
                 {currentQ.choices.map((choiceText, cIdx) => {
                   const choiceLetter = choiceLabels[cIdx] || String.fromCharCode(65 + cIdx);
                   const isSelected = currentAnswer.toUpperCase() === choiceLetter;
-                  const isElim = Boolean(qEliminated[cIdx]);
+                  const isElim = !isChecked && Boolean(qEliminated[cIdx]);
+
+                  const isCurrentCorrect = isChecked
+                    ? evaluateSATQuestionAnswer(currentAnswer, currentQ.correctAnswer || '', currentQ.choices)
+                    : false;
+
+                  const isOfficialCorrect = isChecked
+                    ? evaluateSATQuestionAnswer(choiceLetter, currentQ.correctAnswer || '', currentQ.choices)
+                    : false;
+
+                  let containerClasses = 'border-slate-200 hover:border-slate-400 bg-white hover:bg-slate-50/60';
+                  let circleClasses = 'border-slate-300 text-slate-700 group-hover:border-slate-500 group-hover:text-slate-900';
+
+                  if (isChecked) {
+                    if (isSelected && isCurrentCorrect) {
+                      containerClasses = 'border-emerald-500 bg-emerald-50/90 shadow-sm ring-2 ring-emerald-500/30';
+                      circleClasses = 'border-emerald-600 bg-emerald-600 text-white';
+                    } else if (isSelected && !isCurrentCorrect) {
+                      containerClasses = 'border-rose-500 bg-rose-50/90 shadow-sm ring-2 ring-rose-500/30';
+                      circleClasses = 'border-rose-600 bg-rose-600 text-white';
+                    } else if (isOfficialCorrect && !isCurrentCorrect) {
+                      containerClasses = 'border-emerald-500 bg-emerald-50/60 shadow-sm ring-2 ring-emerald-400/40';
+                      circleClasses = 'border-emerald-600 bg-emerald-600 text-white';
+                    } else {
+                      containerClasses = 'border-slate-200 bg-slate-50/40 opacity-50';
+                      circleClasses = 'border-slate-300 text-slate-400';
+                    }
+                  } else if (isElim) {
+                    containerClasses = 'opacity-40 bg-slate-50 border-slate-200';
+                    circleClasses = 'border-slate-300 text-slate-400';
+                  } else if (isSelected) {
+                    containerClasses = 'border-blue-600 bg-blue-50/80 shadow-xs ring-2 ring-blue-500/20';
+                    circleClasses = 'border-blue-600 bg-blue-600 text-white';
+                  }
 
                   return (
                     <div
                       key={cIdx}
-                      className={`flex items-stretch rounded-2xl border-2 transition-all group overflow-hidden w-full ${
-                        isElim
-                          ? 'opacity-40 bg-slate-50 border-slate-200'
-                          : isSelected
-                          ? 'border-blue-600 bg-blue-50/80 shadow-xs ring-2 ring-blue-500/20'
-                          : 'border-slate-200 hover:border-slate-400 bg-white hover:bg-slate-50/60'
-                      }`}
+                      className={`flex items-stretch rounded-2xl border-2 transition-all group overflow-hidden w-full ${containerClasses}`}
                     >
                       {/* Option Radio / Button */}
                       <button
@@ -976,11 +1075,7 @@ export default function BluebookTestShell({
                         className="flex-1 p-4 sm:p-5 md:p-6 text-left flex items-center gap-4 cursor-pointer disabled:cursor-default min-w-0 w-full"
                       >
                         <div
-                          className={`w-8 h-8 rounded-full border-2 font-mono font-bold text-sm flex items-center justify-center shrink-0 transition-colors ${
-                            isSelected
-                              ? 'border-blue-600 bg-blue-600 text-white'
-                              : 'border-slate-300 text-slate-700 group-hover:border-slate-500 group-hover:text-slate-900'
-                          }`}
+                          className={`w-8 h-8 rounded-full border-2 font-mono font-bold text-sm flex items-center justify-center shrink-0 transition-colors ${circleClasses}`}
                         >
                           {choiceLetter}
                         </div>
@@ -992,10 +1087,27 @@ export default function BluebookTestShell({
                         >
                           <MathRenderer text={choiceText} />
                         </div>
+
+                        {/* Status Badges for Practice & Learn Instant Feedback */}
+                        {isChecked && isSelected && isCurrentCorrect && (
+                          <span className="px-3 py-1 rounded-full bg-emerald-600 text-white text-xs font-bold font-mono shrink-0 shadow-2xs">
+                            ✓ Correct
+                          </span>
+                        )}
+                        {isChecked && isSelected && !isCurrentCorrect && (
+                          <span className="px-3 py-1 rounded-full bg-rose-600 text-white text-xs font-bold font-mono shrink-0 shadow-2xs">
+                            ✗ Your Choice
+                          </span>
+                        )}
+                        {isChecked && !isSelected && isOfficialCorrect && !isCurrentCorrect && (
+                          <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 text-xs font-bold font-mono shrink-0 shadow-2xs">
+                            ✓ Correct Answer
+                          </span>
+                        )}
                       </button>
 
                       {/* Eliminator Cross-out Action Button */}
-                      {isEliminatorActive && (
+                      {!isChecked && isEliminatorActive && (
                         <button
                           type="button"
                           onClick={() => toggleEliminateChoice(currentIndex, cIdx)}
@@ -1015,13 +1127,154 @@ export default function BluebookTestShell({
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-600">
                   Student-Produced Response:
                 </label>
-                <input
-                  type="text"
-                  value={currentAnswer}
-                  onChange={(e) => handleSelectAnswer(e.target.value)}
-                  placeholder="Enter your answer (e.g., 14, 3/4, 0.75)"
-                  className="w-full max-w-sm px-4 py-3 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-base text-slate-900"
-                />
+                <div className="flex items-center gap-3">
+                  <input
+                    type="text"
+                    value={currentAnswer}
+                    onChange={(e) => handleSelectAnswer(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && instantFeedback && !isChecked && currentAnswer.trim()) {
+                        handleCheckAnswer(currentIndex);
+                      }
+                    }}
+                    disabled={isChecked}
+                    placeholder="Enter your answer (e.g., 14, 3/4, 0.75)"
+                    className={`w-full max-w-sm px-4 py-3 rounded-xl border font-mono text-base ${
+                      isChecked
+                        ? evaluateSATQuestionAnswer(currentAnswer, currentQ.correctAnswer || '', currentQ.choices)
+                          ? 'border-emerald-500 bg-emerald-50 text-emerald-950 font-bold ring-2 ring-emerald-400'
+                          : 'border-rose-500 bg-rose-50 text-rose-950 font-bold ring-2 ring-rose-300'
+                        : 'border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 bg-white'
+                    }`}
+                  />
+                  {isChecked && (
+                    <span
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold font-mono shadow-2xs ${
+                        evaluateSATQuestionAnswer(currentAnswer, currentQ.correctAnswer || '', currentQ.choices)
+                          ? 'bg-emerald-600 text-white'
+                          : 'bg-rose-600 text-white'
+                      }`}
+                    >
+                      {evaluateSATQuestionAnswer(currentAnswer, currentQ.correctAnswer || '', currentQ.choices)
+                        ? '✓ Correct'
+                        : '✗ Incorrect'}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* PRACTICE & LEARN MODE: CHECK ANSWER BUTTON */}
+            {instantFeedback && !isChecked && (
+              <div className="pt-5 flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => handleCheckAnswer(currentIndex)}
+                  disabled={!currentAnswer.trim()}
+                  className="px-6 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-sm font-black shadow-md flex items-center gap-2 cursor-pointer disabled:cursor-not-allowed transition-all active:scale-95"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  <span>Check Answer</span>
+                </button>
+                <span className="text-xs text-slate-500">
+                  {!currentAnswer.trim()
+                    ? 'Select or type an answer to check'
+                    : 'Click to verify and view full step-by-step solution'}
+                </span>
+              </div>
+            )}
+
+            {/* PRACTICE & LEARN MODE: COMPREHENSIVE INSTANT EXPLANATION CARD */}
+            {instantFeedback && isChecked && (
+              <div
+                className={`mt-6 p-5 sm:p-6 rounded-3xl border-2 space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-200 ${
+                  evaluateSATQuestionAnswer(currentAnswer, currentQ.correctAnswer || '', currentQ.choices)
+                    ? 'bg-emerald-50/80 border-emerald-300 text-slate-900'
+                    : 'bg-rose-50/70 border-rose-300 text-slate-900'
+                }`}
+              >
+                {/* Result Header & Actions */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-200/80">
+                  <div className="flex items-center gap-3">
+                    {evaluateSATQuestionAnswer(currentAnswer, currentQ.correctAnswer || '', currentQ.choices) ? (
+                      <CheckCircle2 className="w-7 h-7 text-emerald-600 shrink-0" />
+                    ) : (
+                      <XCircle className="w-7 h-7 text-rose-600 shrink-0" />
+                    )}
+                    <div>
+                      <div
+                        className={`text-base font-black ${
+                          evaluateSATQuestionAnswer(currentAnswer, currentQ.correctAnswer || '', currentQ.choices)
+                            ? 'text-emerald-900'
+                            : 'text-rose-900'
+                        }`}
+                      >
+                        {evaluateSATQuestionAnswer(currentAnswer, currentQ.correctAnswer || '', currentQ.choices)
+                          ? '🎉 Correct! Excellent reasoning.'
+                          : '❌ Incorrect Answer'}
+                      </div>
+                      <div className="text-xs text-slate-600 mt-0.5">
+                        Official Correct Answer:{' '}
+                        <span className="font-mono font-black text-slate-900 bg-white px-2 py-0.5 rounded border border-slate-200 shadow-2xs">
+                          {currentQ.correctAnswer || 'N/A'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Action Buttons: Retry, Error Book, Next */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => handleRetryQuestion(currentIndex)}
+                      className="px-3.5 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 text-xs font-bold text-slate-700 transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                    >
+                      <span>Try Again</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleSaveToErrorBook(currentIndex)}
+                      disabled={savedToErrorBook[currentIndex] || isSavingError[currentIndex]}
+                      className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs cursor-pointer ${
+                        savedToErrorBook[currentIndex]
+                          ? 'bg-emerald-600 text-white border border-emerald-600'
+                          : 'bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700'
+                      }`}
+                    >
+                      <Bookmark className="w-3.5 h-3.5" />
+                      <span>
+                        {savedToErrorBook[currentIndex] ? 'Added to Error Book ✓' : '+ Add to Error Book'}
+                      </span>
+                    </button>
+
+                    {currentIndex < activeModule.endIndex && (
+                      <button
+                        type="button"
+                        onClick={() => setCurrentIndex((prev) => prev + 1)}
+                        className="px-4 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                      >
+                        <span>Next Question</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Step-by-Step Explanation Content */}
+                <div className="space-y-2">
+                  <div className="text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>Step-by-Step Official Explanation</span>
+                  </div>
+                  <div className="text-sm md:text-base font-serif leading-relaxed text-slate-900 bg-white/90 p-4 sm:p-5 rounded-2xl border border-slate-200/80 max-h-96 overflow-y-auto shadow-2xs">
+                    {currentQ.explanation ? (
+                      <MarkdownRenderer content={currentQ.explanation} />
+                    ) : (
+                      <p className="italic text-slate-500">No explanation provided for this question.</p>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
           </div>

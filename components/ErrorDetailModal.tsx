@@ -81,10 +81,57 @@ export default function ErrorDetailModal({
   const [difficulty, setDifficulty] = useState<'Easy' | 'Medium' | 'Hard'>(item?.difficulty || 'Medium');
   const [graphData, setGraphData] = useState<GraphData | undefined>(item?.graphData);
   const [isCropModalOpen, setIsCropModalOpen] = useState(false);
+  const [isGeneratingAiAnalysis, setIsGeneratingAiAnalysis] = useState(false);
+  const [generatedAiAnalysis, setGeneratedAiAnalysis] = useState<string | null>(null);
 
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
 
   if (!item) return null;
+
+  const handleGenerateAiAnalysis = async () => {
+    setIsGeneratingAiAnalysis(true);
+    try {
+      const res = await fetch('/api/ai-explain', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          questionText: questionText || item.questionText,
+          passageText: item.passageText || '',
+          choices: answerChoices.length > 0 ? answerChoices : item.answerChoices,
+          correctAnswer: correctAnswer || item.correctAnswer,
+          explanation: explanation || item.explanation,
+          aiTakeaway: aiTakeaway || item.aiTakeaway,
+          subject: subject || item.subject,
+          subTopic: subTopic || item.subTopic,
+          mode: 'answer_analysis',
+        }),
+      });
+
+      const data = await res.json();
+      if (data.text) {
+        setGeneratedAiAnalysis(data.text);
+      } else {
+        alert(data.error || 'Failed to generate AI analysis.');
+      }
+    } catch (err) {
+      console.error('Error generating AI analysis:', err);
+      alert('Error connecting to AI analysis service.');
+    } finally {
+      setIsGeneratingAiAnalysis(false);
+    }
+  };
+
+  const handleApplyAnalysisToFields = async () => {
+    if (!generatedAiAnalysis) return;
+    setExplanation(generatedAiAnalysis);
+    const updated: SATErrorItem = {
+      ...item,
+      explanation: generatedAiAnalysis,
+    };
+    await saveError(updated);
+    onUpdated();
+    alert('AI Analysis successfully applied to question solution and saved!');
+  };
 
   const imagesList =
     item.imageDataUrls && item.imageDataUrls.length > 0
@@ -588,6 +635,54 @@ export default function ErrorDetailModal({
 
               {/* AI Takeaway & Explanation */}
               <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                    Analysis & Solutions
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleGenerateAiAnalysis}
+                    disabled={isGeneratingAiAnalysis}
+                    className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs transition-all"
+                  >
+                    <Sparkles className={`w-3.5 h-3.5 ${isGeneratingAiAnalysis ? 'animate-spin' : ''}`} />
+                    <span>{isGeneratingAiAnalysis ? 'Generating AI Analysis...' : 'Generate AI Answer Analysis'}</span>
+                  </button>
+                </div>
+
+                {generatedAiAnalysis && (
+                  <div className="p-4 rounded-2xl bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-900/60 space-y-3 animate-in fade-in duration-200">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-bold text-purple-900 dark:text-purple-200 flex items-center gap-1.5">
+                        <Sparkles className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                        AI Generated Analysis & Trap Breakdown
+                      </h4>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText(generatedAiAnalysis);
+                            alert('Copied to clipboard!');
+                          }}
+                          className="text-[11px] font-bold text-purple-700 dark:text-purple-300 hover:underline cursor-pointer"
+                        >
+                          Copy
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleApplyAnalysisToFields}
+                          className="px-2.5 py-1 rounded-lg bg-purple-600 text-white text-[11px] font-bold hover:bg-purple-700 cursor-pointer shadow-xs"
+                        >
+                          Apply to Solution
+                        </button>
+                      </div>
+                    </div>
+                    <div className="text-xs text-slate-800 dark:text-slate-200 leading-relaxed font-sans">
+                      <MarkdownRenderer content={generatedAiAnalysis} />
+                    </div>
+                  </div>
+                )}
+
                 <div>
                   <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1 flex items-center gap-1.5">
                     <Sparkles className="w-3.5 h-3.5 text-amber-500" />
@@ -873,6 +968,59 @@ export default function ErrorDetailModal({
                   </div>
                 )}
               </div>
+
+              {/* AI Generator Action in Read Mode */}
+              <div className="flex items-center justify-between p-3.5 rounded-2xl bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-950/30 dark:to-indigo-950/30 border border-purple-200 dark:border-purple-900/50">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                  <span className="text-xs font-bold text-purple-950 dark:text-purple-200">
+                    Need deeper breakdown or College Board trap analysis?
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleGenerateAiAnalysis}
+                  disabled={isGeneratingAiAnalysis}
+                  className="px-3.5 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs transition-all"
+                >
+                  <Sparkles className={`w-3.5 h-3.5 ${isGeneratingAiAnalysis ? 'animate-spin' : ''}`} />
+                  <span>{isGeneratingAiAnalysis ? 'Analyzing...' : 'Generate AI Answer Analysis'}</span>
+                </button>
+              </div>
+
+              {/* Generated AI Analysis in Read Mode */}
+              {generatedAiAnalysis && (
+                <div className="p-4 sm:p-5 rounded-2xl bg-purple-50/90 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-900/60 space-y-3 animate-in fade-in duration-200">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-bold text-purple-900 dark:text-purple-200 flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                      <span>AI Comprehensive Answer Analysis & Strategy</span>
+                    </h4>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(generatedAiAnalysis);
+                          alert('Copied to clipboard!');
+                        }}
+                        className="text-[11px] font-bold text-purple-700 dark:text-purple-300 hover:underline cursor-pointer"
+                      >
+                        Copy Analysis
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleApplyAnalysisToFields}
+                        className="px-2.5 py-1 rounded-lg bg-purple-600 text-white text-[11px] font-bold hover:bg-purple-700 cursor-pointer shadow-xs"
+                      >
+                        Save to Question
+                      </button>
+                    </div>
+                  </div>
+                  <div className="text-xs sm:text-sm text-slate-800 dark:text-slate-200 leading-relaxed font-sans">
+                    <MarkdownRenderer content={generatedAiAnalysis} />
+                  </div>
+                </div>
+              )}
 
               {/* AI Takeaway */}
               <div className="p-4 rounded-xl bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 space-y-1">

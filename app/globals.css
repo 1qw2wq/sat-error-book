@@ -1,17 +1,72 @@
 @import "tailwindcss";
 @import "katex/dist/katex.min.css";
 
-/* Crisp High-Contrast KaTeX Typography & Inline Formula Alignment */
+/* KaTeX Typography & Inline Formula Alignment */
 .katex,
 .katex-display,
 .katex-html {
-  color: #000000 !important;
   font-size: 1.05em;
   white-space: nowrap !important;
 }
 
-.katex * {
+/* 1. Default KaTeX / MathML Formula Rendering: Strictly inherits parent text color dynamically (White in Dark Mode, Slate in Light Mode, Accent in Badges) */
+.katex,
+.katex-html,
+.katex *,
+.raw-mathml-fallback math,
+.raw-mathml-fallback math *,
+.inline-math-wrapper,
+mjx-container,
+mjx-container * {
   color: inherit !important;
+}
+
+/* 2. Global Dark Mode & System Preference Overrides */
+.dark .katex,
+.dark .katex-html,
+.dark .katex *,
+.dark .raw-mathml-fallback math,
+.dark .raw-mathml-fallback math *,
+.dark .inline-math-wrapper,
+.dark mjx-container,
+.dark mjx-container * {
+  color: inherit !important;
+}
+
+@media (prefers-color-scheme: dark) {
+  .katex,
+  .katex-html,
+  .katex *,
+  .raw-mathml-fallback math,
+  .raw-mathml-fallback math *,
+  .inline-math-wrapper,
+  mjx-container,
+  mjx-container * {
+    color: inherit !important;
+  }
+}
+
+/* 3. Testing Sites / Bluebook Shells: STRICTLY Solid Pure Black on White Paper */
+.bluebook-test-container,
+.bluebook-test-container .katex,
+.bluebook-test-container .katex-html,
+.bluebook-test-container .katex *,
+.bluebook-test-container .raw-mathml-fallback math,
+.bluebook-test-container .raw-mathml-fallback math *,
+.bluebook-test-container .inline-math-wrapper,
+.bluebook-test-container mjx-container,
+.bluebook-test-container mjx-container *,
+.bluebook-prompt-content .katex,
+.bluebook-prompt-content .katex-html,
+.bluebook-prompt-content .katex *,
+.bluebook-passage-content .katex,
+.bluebook-passage-content .katex-html,
+.bluebook-passage-content .katex *,
+[data-testing-site="true"] .katex,
+[data-testing-site="true"] .katex *,
+[data-testing-site="true"] math,
+[data-testing-site="true"] math * {
+  color: #000000 !important;
 }
 
 /* Ensure inline KaTeX elements wrap cleanly in text without forcing line breaks */
@@ -28,15 +83,9 @@ span.katex-display {
   display: inline !important;
   font-family: 'Latin Modern Math', 'STIX Two Math', KaTeX_Math, Cambria Math, 'Times New Roman', serif;
   font-size: 1.05em;
-  color: #000000 !important;
   line-height: normal;
   white-space: nowrap !important;
   vertical-align: baseline;
-}
-
-.raw-mathml-fallback math * {
-  white-space: nowrap !important;
-  color: #000000 !important;
 }
 
 .raw-mathml-fallback math mfrac {
@@ -53,6 +102,5 @@ span.katex-display {
   display: inline-block !important;
   vertical-align: middle;
   margin: 0 0.15rem !important;
-  color: #000000 !important;
   white-space: nowrap !important;
 }

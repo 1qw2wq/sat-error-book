@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e1b4b" />
+      <stop offset="50%" stop-color="#1e40af" />
+      <stop offset="100%" stop-color="#2563eb" />
+    </linearGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fef08a" />
+      <stop offset="50%" stop-color="#fbbf24" />
+      <stop offset="100%" stop-color="#d97706" />
+    </linearGradient>
+    <linearGradient id="pageLeft" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#f1f5f9" />
+      <stop offset="100%" stop-color="#ffffff" />
+    </linearGradient>
+    <linearGradient id="pageRight" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="100%" stop-color="#e2e8f0" />
+    </linearGradient>
+  </defs>
+
+  <!-- Container -->
+  <rect width="512" height="512" rx="112" fill="url(#bgGrad)" />
+  <rect width="512" height="512" rx="112" fill="none" stroke="#ffffff" stroke-opacity="0.2" stroke-width="8" />
+
+  <!-- Central Open Book Graphic -->
+  <g>
+    <path d="M256 360 C 215 345, 145 350, 100 375 L 100 195 C 145 170, 215 165, 256 182 Z" fill="url(#pageLeft)" />
+    <path d="M256 360 C 297 345, 367 350, 412 375 L 412 195 C 367 170, 297 165, 256 182 Z" fill="url(#pageRight)" />
+    <path d="M256 182 L 256 360" stroke="#94a3b8" stroke-width="6" stroke-linecap="round" />
+
+    <!-- Page Lines -->
+    <line x1="135" y1="220" x2="225" y2="208" stroke="#64748b" stroke-width="9" stroke-linecap="round" />
+    <line x1="135" y1="255" x2="225" y2="243" stroke="#64748b" stroke-width="9" stroke-linecap="round" />
+    <line x1="135" y1="290" x2="205" y2="280" stroke="#3b82f6" stroke-width="9" stroke-linecap="round" />
+
+    <line x1="287" y1="208" x2="377" y2="220" stroke="#64748b" stroke-width="9" stroke-linecap="round" />
+    <line x1="287" y1="243" x2="377" y2="255" stroke="#64748b" stroke-width="9" stroke-linecap="round" />
+    <line x1="287" y1="280" x2="357" y2="290" stroke="#3b82f6" stroke-width="9" stroke-linecap="round" />
+  </g>
+
+  <!-- Golden 1600 Star -->
+  <path d="M 256 60 Q 256 115 200 115 Q 256 115 256 170 Q 256 115 312 115 Q 256 115 256 60 Z" fill="url(#goldGrad)" />
+</svg>

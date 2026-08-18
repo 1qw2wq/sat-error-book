@@ -261,6 +261,8 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
 
   const [savingAllMissed, setSavingAllMissed] = useState<boolean>(false);
   const [savedAllMissedSuccess, setSavedAllMissedSuccess] = useState<boolean>(false);
+  const [aiAnalyses, setAiAnalyses] = useState<Record<number, string>>({});
+  const [loadingAiAnalysis, setLoadingAiAnalysis] = useState<Record<number, boolean>>({});
 
   // Load Exam Summary, Combined Exams, Domains, Presets, History, and Builder State on mount
   useEffect(() => {
@@ -392,9 +394,17 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
     if (newSection === 'Reading and Writing') {
       const isMathDomain = domainBreakdown.mathDomains.some((d) => d.name === builderDomain);
       if (isMathDomain) setBuilderDomain('All');
+      if (builderExam !== 'All') {
+        const examObj = exams.find((e) => e.exam_name === builderExam);
+        if (examObj && examObj.section === 'Math') setBuilderExam('All');
+      }
     } else if (newSection === 'Math') {
       const isRwDomain = domainBreakdown.rwDomains.some((d) => d.name === builderDomain);
       if (isRwDomain) setBuilderDomain('All');
+      if (builderExam !== 'All') {
+        const examObj = exams.find((e) => e.exam_name === builderExam);
+        if (examObj && examObj.section === 'Reading and Writing') setBuilderExam('All');
+      }
     }
   };
 
@@ -814,6 +824,45 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
       console.error('Failed to batch save missed questions:', err);
     } finally {
       setSavingAllMissed(false);
+    }
+  };
+
+  const handleGenerateAiAnalysis = async (idx: number) => {
+    if (!testResults) return;
+    const q = testResults.bluebookQuestions[idx];
+    const raw = testResults.rawQuestions[idx];
+    const userAns = testResults.userAnswers[idx] || '';
+    if (!q) return;
+
+    setLoadingAiAnalysis((prev) => ({ ...prev, [idx]: true }));
+    try {
+      const res = await fetch('/api/ai-explain', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          questionText: q.questionPrompt || raw?.question || '',
+          passageText: q.passageText || '',
+          choices: q.choices || raw?.selections || [],
+          correctAnswer: q.correctAnswer || raw?.answers || '',
+          userSelectedAnswer: userAns || '',
+          explanation: q.explanation || raw?.explanations || '',
+          subject: raw?.section || q.subject || 'SAT',
+          subTopic: raw?.category || q.subTopic || '',
+          mode: 'answer_analysis',
+        }),
+      });
+
+      const data = await res.json();
+      if (data.text) {
+        setAiAnalyses((prev) => ({ ...prev, [idx]: data.text }));
+      } else {
+        alert(data.error || 'Failed to generate AI analysis.');
+      }
+    } catch (err) {
+      console.error('Error generating AI analysis:', err);
+      alert('Error communicating with AI analysis service.');
+    } finally {
+      setLoadingAiAnalysis((prev) => ({ ...prev, [idx]: false }));
     }
   };
 
@@ -1331,6 +1380,9 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
                         onClick={() => {
                           setActivePresetId(null);
                           setBuilderYear(yr);
+                          if (yr !== 'All' && builderExam !== 'All' && !builderExam.includes(yr)) {
+                            setBuilderExam('All');
+                          }
                         }}
                         className={`py-1.5 px-2 rounded-xl text-xs font-bold transition-all text-center cursor-pointer ${
                           builderYear === yr
@@ -1670,27 +1722,55 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
 
             {/* LIVE POOL & ACTION FOOTER */}
             <div className="pt-6 border-t border-slate-200 dark:border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
+              <div className="space-y-1.5">
+                <div className="flex items-center flex-wrap gap-2">
                   <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
                     Matching Question Pool:
                   </span>
                   <span className="px-2.5 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 text-xs font-black font-mono">
-                    {isCountingPool ? 'Computing...' : `${livePoolCount} Questions`}
+                    {isCountingPool ? 'Computing...' : `${livePoolCount} Available`}
+                  </span>
+                  <span className="text-slate-500 dark:text-slate-400 text-xs font-semibold">
+                    • Drill Target: <span className="font-mono text-indigo-600 dark:text-indigo-400 font-bold">{Math.min(builderCount, livePoolCount || builderCount)}Q</span>
                   </span>
                   <span className="text-slate-400 text-xs font-normal">
-                    • Est. ~{Math.round((builderCount * (builderSection === 'Math' ? 95 : 71)) / 60)} mins
+                    (Est. ~{Math.round((Math.min(builderCount, livePoolCount || builderCount) * (builderSection === 'Math' ? 95 : 71)) / 60)} mins)
                   </span>
                 </div>
 
                 <div className="flex items-center flex-wrap gap-1.5 text-[11px] text-slate-500">
-                  <span className="font-semibold text-slate-600 dark:text-slate-400">Filters:</span>
+                  <span className="font-semibold text-slate-600 dark:text-slate-400">Active Filters:</span>
                   <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 font-medium">
-                    {builderSection}
+                    {builderSection === 'All' ? 'All Subjects' : builderSection}
                   </span>
                   {builderDomain !== 'All' && (
-                    <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 font-medium truncate max-w-[150px]">
+                    <span className="px-2 py-0.5 rounded-md bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-medium truncate max-w-[200px]">
                       {builderDomain}
+                    </span>
+                  )}
+                  {builderYear !== 'All' && (
+                    <span className="px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-medium">
+                      Year: {builderYear}
+                    </span>
+                  )}
+                  {builderExam !== 'All' && (
+                    <span className="px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-medium truncate max-w-[180px]">
+                      {builderExam}
+                    </span>
+                  )}
+                  {builderModule !== 'All' && (
+                    <span className="px-2 py-0.5 rounded-md bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-medium">
+                      {builderModule}
+                    </span>
+                  )}
+                  {builderType !== 'All' && (
+                    <span className="px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 font-medium">
+                      {builderType === 'Single Choice' ? 'Multiple Choice' : 'Grid-in'}
+                    </span>
+                  )}
+                  {builderOnlyGraphs && (
+                    <span className="px-2 py-0.5 rounded-md bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 font-medium">
+                      Graphs Only
                     </span>
                   )}
                   <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 font-medium">
@@ -1699,13 +1779,21 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
                   <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 font-medium">
                     {builderDeliveryMode === 'instant_feedback' ? 'Instant Feedback' : 'Simulated Exam'}
                   </span>
+                  {(builderDomain !== 'All' || builderYear !== 'All' || builderExam !== 'All' || builderModule !== 'All' || builderType !== 'All' || builderOnlyGraphs) && (
+                    <button
+                      onClick={handleResetBuilder}
+                      className="px-2 py-0.5 rounded-md bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 font-bold hover:underline cursor-pointer ml-1"
+                    >
+                      Clear Filters
+                    </button>
+                  )}
                 </div>
               </div>
 
               <button
                 onClick={handleStartCustomDrill}
                 disabled={isGeneratingTest}
-                className="px-8 py-3.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-black shadow-lg hover:shadow-indigo-500/25 transition-all active:scale-95 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                className="px-8 py-3.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-black shadow-lg hover:shadow-indigo-500/25 transition-all active:scale-95 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 shrink-0"
               >
                 {isGeneratingTest ? (
                   <RefreshCw className="w-4 h-4 animate-spin" />
@@ -2198,6 +2286,30 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
                               </button>
                             )}
 
+                            {/* AI Generate Answer Analysis Button */}
+                            <button
+                              onClick={() => handleGenerateAiAnalysis(idx)}
+                              disabled={loadingAiAnalysis[idx]}
+                              className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-xs ${
+                                aiAnalyses[idx]
+                                  ? 'bg-purple-100 text-purple-900 border border-purple-300 dark:bg-purple-950 dark:text-purple-200'
+                                  : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white'
+                              }`}
+                              title="Generate comprehensive AI Answer Analysis & Strategy"
+                            >
+                              {loadingAiAnalysis[idx] ? (
+                                <>
+                                  <Sparkles className="w-3.5 h-3.5 animate-spin" />
+                                  <span>Analyzing...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Sparkles className="w-3.5 h-3.5" />
+                                  <span>{aiAnalyses[idx] ? 'AI Analysis' : 'AI Analysis'}</span>
+                                </>
+                              )}
+                            </button>
+
                             {!isCorrect && raw && (
                               <button
                                 onClick={() => handleAddToErrorBook(raw, userAns)}
@@ -2271,6 +2383,30 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
                             </span>
                             <div className="text-xs text-slate-700 dark:text-slate-300 font-serif leading-relaxed">
                               <MarkdownRenderer content={q.explanation || raw?.explanations || ''} />
+                            </div>
+                          </div>
+                        )}
+
+                        {/* AI Deep Answer Analysis Card */}
+                        {aiAnalyses[idx] && (
+                          <div className="mt-3 p-4 sm:p-5 rounded-2xl bg-purple-50/90 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-900/60 space-y-2.5 animate-in fade-in duration-200">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-purple-900 dark:text-purple-200">
+                                <Sparkles className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                                <span>AI Comprehensive Answer Analysis & Strategy</span>
+                              </div>
+                              <button
+                                onClick={() => {
+                                  navigator.clipboard.writeText(aiAnalyses[idx]);
+                                  alert('AI Analysis copied to clipboard!');
+                                }}
+                                className="text-[11px] font-bold text-purple-700 dark:text-purple-300 hover:underline cursor-pointer"
+                              >
+                                Copy Analysis
+                              </button>
+                            </div>
+                            <div className="text-xs sm:text-sm text-slate-800 dark:text-slate-200 leading-relaxed font-sans">
+                              <MarkdownRenderer content={aiAnalyses[idx]} />
                             </div>
                           </div>
                         )}

@@ -206,7 +206,7 @@ function renderInlineProse(
   if (/^#{1,6}\s+/.test(cleanProse)) {
     const headingText = cleanProse.replace(/^#{1,6}\s+/, '');
     return (
-      <span key={`h-${baseKey}`} className="block font-bold text-slate-800 dark:text-slate-200 mb-1">
+      <span key={`h-${baseKey}`} className="block font-bold text-inherit mb-1">
         {renderInlineProse(headingText, baseKey * 10, highlights, onHighlightClick)}
       </span>
     );
@@ -216,7 +216,7 @@ function renderInlineProse(
   if (/^>\s+/.test(cleanProse)) {
     const quoteText = cleanProse.replace(/^>\s+/, '');
     return (
-      <span key={`bq-${baseKey}`} className="block italic text-slate-800 dark:text-slate-200 my-1 pl-2 border-l-2 border-slate-300 dark:border-slate-700">
+      <span key={`bq-${baseKey}`} className="block italic text-inherit my-1 pl-2 border-l-2 border-slate-300 dark:border-slate-700">
         {renderInlineProse(quoteText, baseKey * 10, highlights, onHighlightClick)}
       </span>
     );
@@ -648,7 +648,7 @@ function MathJaxMml({ mathml, isBlock = false }: { mathml: string; isBlock?: boo
   return (
     <span
       ref={containerRef}
-      className={isBlock ? 'block my-2 text-center overflow-x-auto text-black dark:text-white font-serif' : 'inline-math-wrapper inline mx-0.5 align-baseline text-black dark:text-white font-serif'}
+      className={isBlock ? 'block my-2 text-center overflow-x-auto text-inherit font-serif' : 'inline-math-wrapper inline mx-0.5 align-baseline text-inherit font-serif'}
       dangerouslySetInnerHTML={{ __html: cleanMathML }}
     />
   );
@@ -706,13 +706,13 @@ export default function MathRenderer({ text, className = '', highlights, onHighl
       return (
         <span
           key={key}
-          className={isBlock ? 'block my-2 overflow-x-auto text-center text-black dark:text-white font-serif' : 'inline-block px-0.5 align-baseline text-black dark:text-white font-serif'}
+          className={isBlock ? 'block my-2 overflow-x-auto text-center text-inherit font-serif' : 'inline-block px-0.5 align-baseline text-inherit font-serif'}
           dangerouslySetInnerHTML={{ __html: html }}
         />
       );
     } catch {
       return (
-        <span key={key} className="inline font-mono text-slate-800 dark:text-slate-200 font-medium">
+        <span key={key} className="inline font-mono text-inherit font-medium">
           {latex}
         </span>
       );

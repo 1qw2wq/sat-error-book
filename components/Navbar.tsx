@@ -37,10 +37,21 @@ export default function Navbar({
         {/* Brand Logo & Name */}
         <div
           onClick={() => onTabChange('dashboard')}
-          className="flex items-center gap-2.5 cursor-pointer group"
+          className="flex items-center gap-2.5 cursor-pointer group select-none"
         >
-          <div className="w-10 h-10 rounded-xl overflow-hidden shadow-sm group-hover:scale-105 transition-transform bg-white flex items-center justify-center border border-slate-200/80 shrink-0">
-            <img src="/logo.png" alt="SAT Logo" className="w-full h-full object-cover" />
+          <div className="w-10 h-10 rounded-xl overflow-hidden shadow-xs group-hover:scale-105 transition-transform bg-gradient-to-br from-indigo-900 to-blue-600 flex items-center justify-center border border-slate-200/80 dark:border-slate-700/80 shrink-0">
+            <img
+              src="/logo.svg"
+              alt="SAT Error Book Logo"
+              onError={(e) => {
+                const target = e.currentTarget;
+                if (!target.dataset.triedFallback) {
+                  target.dataset.triedFallback = 'true';
+                  target.src = '/logo.png';
+                }
+              }}
+              className="w-full h-full object-cover"
+            />
           </div>
           <div>
             <div className="flex items-center gap-1.5">
