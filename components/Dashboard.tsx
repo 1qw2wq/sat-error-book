@@ -281,7 +281,7 @@ export default function Dashboard({
           <div className="space-y-2 max-w-xl">
             <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 text-xs font-bold uppercase tracking-wider">
               <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
-              <span>3,895 Authentic SAT Questions Added</span>
+              <span>9,568 Authentic SAT Questions Added</span>
             </div>
             <h3 className="text-xl sm:text-2xl font-black text-white leading-snug">
               Official SAT Past Exam Question Bank

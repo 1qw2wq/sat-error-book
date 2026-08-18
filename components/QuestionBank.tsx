@@ -112,9 +112,9 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
     withGraphsCount: number;
     totalExams: number;
   }>({
-    totalQuestions: 3895,
-    readingWritingCount: 2187,
-    mathCount: 1708,
+    totalQuestions: 9568,
+    readingWritingCount: 5476,
+    mathCount: 4092,
     withGraphsCount: 373,
     totalExams: 100,
   });
@@ -173,7 +173,7 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
   );
 
   // Live pool counter and generation state
-  const [livePoolCount, setLivePoolCount] = useState<number>(3895);
+  const [livePoolCount, setLivePoolCount] = useState<number>(9568);
   const [isCountingPool, setIsCountingPool] = useState<boolean>(false);
   const [isGeneratingTest, setIsGeneratingTest] = useState<boolean>(false);
 
@@ -828,7 +828,7 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
               <span>Official SAT Real Exam Question Bank</span>
             </div>
             <h1 className="text-2xl sm:text-3xl md:text-4xl font-extrabold tracking-tight text-white leading-tight">
-              Test & Master 3,895 Authentic SAT Questions
+              Test & Master {stats.totalQuestions.toLocaleString()} Authentic SAT Questions
             </h1>
             <p className="text-slate-300 text-sm sm:text-base leading-relaxed">
               Complete collection of past SAT exam papers from 2026, 2025, and previous tests with combined Reading & Writing and Math sections, per-module timed testing, IRT scaled scoring, and instant Error Book synchronization.
@@ -1852,22 +1852,22 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
                     )}
 
                     {/* Question Content with MathRenderer */}
-                    <div className="text-xs sm:text-sm text-slate-900 dark:text-slate-100 leading-relaxed font-serif">
+                    <div className="text-base text-slate-900 dark:text-slate-100 leading-relaxed font-serif my-2 p-3 sm:p-4 rounded-xl bg-slate-50/70 dark:bg-slate-900/40 border border-slate-200/80 dark:border-slate-800 overflow-x-auto min-w-0 w-full">
                       <MathRenderer text={q.question} />
                     </div>
 
                     {/* Choices */}
                     {choices.length > 0 && (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                      <div className="flex flex-col gap-3 pt-1 w-full">
                         {choices.map((c, cIdx) => (
                           <div
                             key={cIdx}
-                            className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 flex items-center gap-2"
+                            className="p-3.5 sm:p-4.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700 transition-colors flex items-center gap-3.5 shadow-2xs w-full"
                           >
-                            <span className="w-5 h-5 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-white font-mono font-bold text-[10px] flex items-center justify-center shrink-0">
+                            <span className="w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-white font-mono font-bold text-xs flex items-center justify-center shrink-0 border border-slate-300 dark:border-slate-600">
                               {String.fromCharCode(65 + cIdx)}
                             </span>
-                            <span className="flex-1 font-serif text-slate-800 dark:text-slate-200">
+                            <span className="flex-1 font-serif text-base text-slate-900 dark:text-slate-100 leading-relaxed overflow-x-auto overflow-y-hidden min-w-0 w-full">
                               <MathRenderer text={c} />
                             </span>
                           </div>
@@ -2221,14 +2221,14 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
                           </div>
                         )}
 
-                        {/* Question Stem with KaTeX */}
-                        <div className="text-xs sm:text-sm text-slate-900 dark:text-slate-100 font-serif leading-relaxed">
+                        {/* Question Stem with MathRenderer */}
+                        <div className="text-sm sm:text-base text-slate-900 dark:text-slate-100 font-serif leading-relaxed overflow-x-auto min-w-0">
                           <MathRenderer text={q.questionPrompt || raw?.question || ''} />
                         </div>
 
                         {/* Choices */}
                         {q.choices && q.choices.length > 0 && (
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                          <div className="flex flex-col gap-2.5 pt-1">
                             {q.choices.map((c, cIdx) => {
                               const choiceLetter = String.fromCharCode(65 + cIdx);
                               const isChoiceCorrect = correctAns.toUpperCase() === choiceLetter;
@@ -2237,18 +2237,24 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
                               return (
                                 <div
                                   key={cIdx}
-                                  className={`p-2.5 rounded-xl border flex items-center gap-2.5 ${
+                                  className={`p-3.5 sm:p-4 rounded-xl border flex items-center gap-3.5 transition-colors ${
                                     isChoiceCorrect
-                                      ? 'border-emerald-400 bg-emerald-100/60 text-emerald-950 font-semibold'
+                                      ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-950 dark:text-emerald-200 font-semibold shadow-xs ring-1 ring-emerald-500/30'
                                       : isChoiceUser
-                                      ? 'border-rose-400 bg-rose-100/60 text-rose-950 line-through'
-                                      : 'border-slate-200 dark:border-slate-800 bg-white/60 dark:bg-slate-800/40 text-slate-700 dark:text-slate-300'
+                                      ? 'border-rose-400 bg-rose-50 dark:bg-rose-950/40 text-rose-950 dark:text-rose-200 line-through ring-1 ring-rose-400/30'
+                                      : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100'
                                   }`}
                                 >
-                                  <span className="w-5 h-5 rounded-full font-mono font-bold text-[10px] flex items-center justify-center shrink-0 border border-current">
+                                  <span className={`w-6 h-6 rounded-full font-mono font-bold text-xs flex items-center justify-center shrink-0 border ${
+                                    isChoiceCorrect
+                                      ? 'bg-emerald-600 text-white border-emerald-600'
+                                      : isChoiceUser
+                                      ? 'bg-rose-600 text-white border-rose-600'
+                                      : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700'
+                                  }`}>
                                     {choiceLetter}
                                   </span>
-                                  <span className="flex-1 font-serif">
+                                  <span className="flex-1 font-serif text-sm leading-relaxed overflow-x-auto min-w-0">
                                     <MathRenderer text={c} />
                                   </span>
                                 </div>

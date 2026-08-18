@@ -39,8 +39,8 @@ export default function Navbar({
           onClick={() => onTabChange('dashboard')}
           className="flex items-center gap-2.5 cursor-pointer group"
         >
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white flex items-center justify-center font-extrabold shadow-sm group-hover:scale-105 transition-transform">
-            <Brain className="w-5 h-5" />
+          <div className="w-10 h-10 rounded-xl overflow-hidden shadow-sm group-hover:scale-105 transition-transform bg-white flex items-center justify-center border border-slate-200/80 shrink-0">
+            <img src="/logo.png" alt="SAT Logo" className="w-full h-full object-cover" />
           </div>
           <div>
             <div className="flex items-center gap-1.5">
@@ -128,7 +128,7 @@ export default function Navbar({
             <Sparkles className="w-3.5 h-3.5 text-emerald-500" />
             <span>Question Bank</span>
             <span className="px-1.5 py-0.2 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-mono text-[10px] font-bold ml-0.5 hidden lg:inline">
-              3.9k Qs
+              9.6k Qs
             </span>
           </button>
         </nav>

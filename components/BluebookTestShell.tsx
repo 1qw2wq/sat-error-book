@@ -937,7 +937,7 @@ export default function BluebookTestShell({
 
             {/* Question Prompt Stem */}
             <div
-              className="bluebook-prompt-content text-slate-900 text-sm md:text-base leading-relaxed font-serif tracking-normal"
+              className="bluebook-prompt-content text-slate-900 text-base md:text-lg leading-relaxed font-serif tracking-normal my-3 p-3.5 sm:p-5 rounded-2xl bg-slate-50/70 border border-slate-200/80 shadow-2xs overflow-x-auto min-w-0 w-full"
               onMouseUp={handleTextSelect}
             >
               <MarkdownRenderer
@@ -949,7 +949,7 @@ export default function BluebookTestShell({
 
             {/* Multiple Choice Options or Grid-in Response */}
             {currentQ.choices && currentQ.choices.length > 0 ? (
-              <div className="space-y-3 pt-2">
+              <div className="space-y-4 pt-3 w-full">
                 {currentQ.choices.map((choiceText, cIdx) => {
                   const choiceLetter = choiceLabels[cIdx] || String.fromCharCode(65 + cIdx);
                   const isSelected = currentAnswer.toUpperCase() === choiceLetter;
@@ -958,12 +958,12 @@ export default function BluebookTestShell({
                   return (
                     <div
                       key={cIdx}
-                      className={`flex items-stretch rounded-xl border transition-all group ${
+                      className={`flex items-stretch rounded-2xl border-2 transition-all group overflow-hidden w-full ${
                         isElim
                           ? 'opacity-40 bg-slate-50 border-slate-200'
                           : isSelected
-                          ? 'border-blue-600 bg-blue-50/70 shadow-xs ring-2 ring-blue-500/20'
-                          : 'border-slate-300 hover:border-slate-400 bg-white'
+                          ? 'border-blue-600 bg-blue-50/80 shadow-xs ring-2 ring-blue-500/20'
+                          : 'border-slate-200 hover:border-slate-400 bg-white hover:bg-slate-50/60'
                       }`}
                     >
                       {/* Option Radio / Button */}
@@ -973,20 +973,20 @@ export default function BluebookTestShell({
                           if (!isElim) handleSelectAnswer(choiceLetter);
                         }}
                         disabled={isChecked}
-                        className="flex-1 p-3.5 md:p-4 text-left flex items-center gap-3.5 cursor-pointer disabled:cursor-default"
+                        className="flex-1 p-4 sm:p-5 md:p-6 text-left flex items-center gap-4 cursor-pointer disabled:cursor-default min-w-0 w-full"
                       >
                         <div
-                          className={`w-7 h-7 rounded-full border-2 font-mono font-bold text-xs flex items-center justify-center shrink-0 transition-colors ${
+                          className={`w-8 h-8 rounded-full border-2 font-mono font-bold text-sm flex items-center justify-center shrink-0 transition-colors ${
                             isSelected
                               ? 'border-blue-600 bg-blue-600 text-white'
-                              : 'border-slate-400 text-slate-700 group-hover:border-slate-600'
+                              : 'border-slate-300 text-slate-700 group-hover:border-slate-500 group-hover:text-slate-900'
                           }`}
                         >
                           {choiceLetter}
                         </div>
 
                         <div
-                          className={`flex-1 text-xs md:text-sm font-sans leading-relaxed ${
+                          className={`flex-1 text-base md:text-lg font-serif leading-relaxed min-w-0 w-full overflow-x-auto overflow-y-hidden ${
                             isElim ? 'line-through text-slate-400' : 'text-slate-900'
                           }`}
                         >
@@ -999,7 +999,7 @@ export default function BluebookTestShell({
                         <button
                           type="button"
                           onClick={() => toggleEliminateChoice(currentIndex, cIdx)}
-                          className="px-3 border-l border-slate-200 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-r-xl transition-colors cursor-pointer"
+                          className="px-4 border-l border-slate-200 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-r-2xl transition-colors cursor-pointer shrink-0"
                           title={isElim ? 'Restore choice' : 'Eliminate choice'}
                         >
                           <X className="w-4 h-4" />

@@ -1,2 +1,58 @@
 @import "tailwindcss";
 @import "katex/dist/katex.min.css";
+
+/* Crisp High-Contrast KaTeX Typography & Inline Formula Alignment */
+.katex,
+.katex-display,
+.katex-html {
+  color: #000000 !important;
+  font-size: 1.05em;
+  white-space: nowrap !important;
+}
+
+.katex * {
+  color: inherit !important;
+}
+
+/* Ensure inline KaTeX elements wrap cleanly in text without forcing line breaks */
+span.katex-display {
+  display: block;
+  margin: 0.5em 0;
+  text-align: center;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+/* Native MathML Fallback - ONLY for raw MathML fallback outside KaTeX */
+.raw-mathml-fallback math {
+  display: inline !important;
+  font-family: 'Latin Modern Math', 'STIX Two Math', KaTeX_Math, Cambria Math, 'Times New Roman', serif;
+  font-size: 1.05em;
+  color: #000000 !important;
+  line-height: normal;
+  white-space: nowrap !important;
+  vertical-align: baseline;
+}
+
+.raw-mathml-fallback math * {
+  white-space: nowrap !important;
+  color: #000000 !important;
+}
+
+.raw-mathml-fallback math mfrac {
+  display: inline-flex !important;
+  flex-direction: column !important;
+  justify-content: center !important;
+  align-items: center !important;
+  vertical-align: middle !important;
+  margin: 0 0.15em !important;
+}
+
+/* Inline Math Wrapper */
+.inline-math-wrapper {
+  display: inline-block !important;
+  vertical-align: middle;
+  margin: 0 0.15rem !important;
+  color: #000000 !important;
+  white-space: nowrap !important;
+}

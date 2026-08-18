@@ -4,7 +4,7 @@ import React, { useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
-import MathRenderer, { HighlightItem } from './MathRenderer';
+import MathRenderer, { HighlightItem, convertMathmlToLatex } from './MathRenderer';
 
 interface MarkdownRendererProps {
   content: string;
@@ -31,6 +31,16 @@ export default function MarkdownRenderer({
     if (text.includes('\\n') && !text.includes('\n')) {
       text = text.replace(/\\n/g, '\n');
     }
+
+    // Pre-convert MathML <math>...</math> tags into LaTeX math $...$ before passing to ReactMarkdown.
+    // This prevents rehypeRaw from converting <math> into broken HTML DOM element nodes.
+    if (text.includes('<math')) {
+      text = text.replace(/<math[\s\S]*?<\/math>/gi, (m) => {
+        const latex = convertMathmlToLatex(m);
+        return `$${latex}$`;
+      });
+    }
+
     return text;
   }, [content]);
 
