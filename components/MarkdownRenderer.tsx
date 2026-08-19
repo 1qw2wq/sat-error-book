@@ -80,12 +80,12 @@ export default function MarkdownRenderer({
             </div>
           ),
           u: ({ children }) => (
-            <span className="underline decoration-2 underline-offset-4 decoration-blue-600 dark:decoration-blue-400 font-semibold text-inherit inline">
+            <span className="underline decoration-solid decoration-2 underline-offset-4 decoration-black dark:decoration-white font-normal text-inherit inline">
               {renderChildrenWithMath(children)}
             </span>
           ),
           ins: ({ children }) => (
-            <ins className="underline decoration-2 underline-offset-4 decoration-blue-600 dark:decoration-blue-400 font-semibold text-inherit inline no-underline">
+            <ins className="underline decoration-solid decoration-2 underline-offset-4 decoration-black dark:decoration-white font-normal text-inherit inline no-underline">
               {renderChildrenWithMath(children)}
             </ins>
           ),

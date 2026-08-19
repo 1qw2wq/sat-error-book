@@ -1481,6 +1481,104 @@ export default function BluebookTestShell({
         )}
       </div>
 
+      {/* ================= EDIT EXISTING HIGHLIGHT POPOVER ================= */}
+      {activeHighlight && (
+        <div
+          style={{
+            top: `${activeHighlight.pos.top}px`,
+            left: `${activeHighlight.pos.left}px`,
+          }}
+          className="fixed z-50 bg-slate-900 text-white shadow-2xl rounded-2xl p-2.5 flex flex-col gap-2 animate-in fade-in zoom-in-95 duration-150 select-none border border-slate-700 min-w-64"
+        >
+          <div className="flex items-center justify-between gap-2 px-1">
+            <span className="text-[11px] font-bold text-slate-300 uppercase tracking-wider">Highlight Option</span>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => removeHighlight(activeHighlight.item.id)}
+                className="px-2 py-0.5 rounded text-xs font-semibold bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-800 flex items-center gap-1 cursor-pointer transition-colors"
+                title="Remove highlight"
+              >
+                <Trash2 className="w-3 h-3" />
+                <span>Remove</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveHighlight(null)}
+                className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white transition-colors cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 pt-1 border-t border-slate-800">
+            <button
+              type="button"
+              onClick={() => updateHighlightColor(activeHighlight.item.id, 'yellow')}
+              className={`w-6 h-6 rounded-full bg-[#fef08a] border border-amber-400 transition-transform ${activeHighlight.item.color === 'yellow' ? 'ring-2 ring-white scale-110' : 'opacity-80 hover:opacity-100'}`}
+              title="Yellow"
+            />
+            <button
+              type="button"
+              onClick={() => updateHighlightColor(activeHighlight.item.id, 'blue')}
+              className={`w-6 h-6 rounded-full bg-[#bae6fd] border border-sky-400 transition-transform ${activeHighlight.item.color === 'blue' ? 'ring-2 ring-white scale-110' : 'opacity-80 hover:opacity-100'}`}
+              title="Blue"
+            />
+            <button
+              type="button"
+              onClick={() => updateHighlightColor(activeHighlight.item.id, 'pink')}
+              className={`w-6 h-6 rounded-full bg-[#fbcfe8] border border-pink-400 transition-transform ${activeHighlight.item.color === 'pink' ? 'ring-2 ring-white scale-110' : 'opacity-80 hover:opacity-100'}`}
+              title="Pink"
+            />
+            <button
+              type="button"
+              onClick={() => updateHighlightColor(activeHighlight.item.id, 'underline')}
+              className={`w-6 h-6 rounded-full bg-slate-800 border border-slate-600 flex items-center justify-center text-white text-xs font-serif font-normal transition-transform ${activeHighlight.item.color === 'underline' ? 'ring-2 ring-white scale-110' : 'opacity-80 hover:opacity-100'}`}
+              title="Dashed Underline"
+            >
+              <span className="underline decoration-dashed decoration-white decoration-2 underline-offset-2 font-normal">U</span>
+            </button>
+          </div>
+
+          {activeHighlight.editingNote ? (
+            <div className="flex items-center gap-1.5 pt-1">
+              <input
+                type="text"
+                value={activeHighlight.noteText}
+                onChange={(e) => setActiveHighlight((prev) => prev ? { ...prev, noteText: e.target.value } : null)}
+                placeholder="Annotation note..."
+                className="flex-1 px-2.5 py-1 text-xs rounded-md bg-slate-800 text-white border border-slate-600 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    updateHighlightNote(activeHighlight.item.id, activeHighlight.noteText);
+                  }
+                }}
+                autoFocus
+              />
+              <button
+                type="button"
+                onClick={() => updateHighlightNote(activeHighlight.item.id, activeHighlight.noteText)}
+                className="px-2 py-1 rounded-md bg-blue-600 text-white font-bold text-[11px] hover:bg-blue-500 cursor-pointer"
+              >
+                Save
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between pt-1 text-xs text-slate-300 border-t border-slate-800/80">
+              <span className="truncate max-w-44 italic">{activeHighlight.item.noteText ? `"${activeHighlight.item.noteText}"` : 'No note attached'}</span>
+              <button
+                type="button"
+                onClick={() => setActiveHighlight((prev) => prev ? { ...prev, editingNote: true } : null)}
+                className="text-[11px] text-blue-400 hover:underline font-semibold cursor-pointer shrink-0 ml-2"
+              >
+                {activeHighlight.item.noteText ? 'Edit Note' : '+ Add Note'}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ================= FLOATING HIGHLIGHT TOOLBAR ================= */}
       {pendingSelection && (
         <div
@@ -1516,10 +1614,10 @@ export default function BluebookTestShell({
             type="button"
             onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
             onClick={() => applyHighlight('underline')}
-            className="w-7 h-7 rounded-full bg-slate-800 hover:bg-slate-700 border border-slate-600 flex flex-col items-center justify-center text-white font-serif font-bold text-xs shrink-0 cursor-pointer"
-            title="Underline text"
+            className="w-7 h-7 rounded-full bg-slate-800 hover:bg-slate-700 border border-slate-600 flex flex-col items-center justify-center text-white font-serif font-normal text-xs shrink-0 cursor-pointer"
+            title="Underline text (Dashed)"
           >
-            <span className="underline decoration-white decoration-2 underline-offset-2">U</span>
+            <span className="underline decoration-dashed decoration-white decoration-2 underline-offset-2 font-normal">U</span>
           </button>
 
           <div className="w-px h-5 bg-slate-700" />

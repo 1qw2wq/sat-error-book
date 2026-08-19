@@ -53,9 +53,10 @@ export function highlightTextNodes(
   highlights?: HighlightItem[],
   onHighlightClick?: (highlight: HighlightItem, e: React.MouseEvent) => void
 ): React.ReactNode {
-  if (!text || !highlights || highlights.length === 0) return text;
+  const cleanText = text ? text.replace(/\\(\$)/g, '$1') : text;
+  if (!cleanText || !highlights || highlights.length === 0) return cleanText;
 
-  const normTarget = normalizeText(text).toLowerCase();
+  const normTarget = normalizeText(cleanText).toLowerCase();
 
   // Find highlights that appear in this text block
   const matchedHighlights: { item: HighlightItem; phrase: string }[] = [];
@@ -103,13 +104,13 @@ export function highlightTextNodes(
       if (matchedObj) {
         const item = matchedObj.item;
         const color = item.color || 'yellow';
-        let styleClass = 'bg-[#fef08a] text-slate-900 border-b-2 border-amber-400 font-medium px-0.5 rounded-2xs shadow-2xs';
+        let styleClass = 'bg-[#fef08a] text-slate-900 border-b-2 border-amber-400 font-normal px-0.5 rounded-2xs shadow-2xs';
         if (color === 'blue') {
-          styleClass = 'bg-[#bae6fd] text-slate-900 border-b-2 border-sky-400 font-medium px-0.5 rounded-2xs shadow-2xs';
+          styleClass = 'bg-[#bae6fd] text-slate-900 border-b-2 border-sky-400 font-normal px-0.5 rounded-2xs shadow-2xs';
         } else if (color === 'pink') {
-          styleClass = 'bg-[#fbcfe8] text-slate-900 border-b-2 border-pink-400 font-medium px-0.5 rounded-2xs shadow-2xs';
+          styleClass = 'bg-[#fbcfe8] text-slate-900 border-b-2 border-pink-400 font-normal px-0.5 rounded-2xs shadow-2xs';
         } else if (color === 'underline') {
-          styleClass = 'underline decoration-2 decoration-blue-600 underline-offset-4 font-semibold text-slate-900 bg-blue-50/50 px-0.5 rounded-2xs';
+          styleClass = 'underline decoration-dashed decoration-2 decoration-black dark:decoration-white underline-offset-4 font-normal text-inherit px-0.5';
         }
 
         return (
@@ -158,7 +159,7 @@ function renderFormattedProseLeaves(
         return (
           <span
             key={`u-${baseKey}-${tIdx}`}
-            className="underline decoration-2 underline-offset-4 decoration-blue-600 dark:decoration-blue-400 font-semibold text-inherit inline"
+            className="underline decoration-solid decoration-2 underline-offset-4 decoration-black dark:decoration-white font-normal text-inherit inline"
           >
             {renderFormattedProseLeaves(inner, baseKey * 100 + tIdx, highlights, onHighlightClick)}
           </span>
@@ -170,7 +171,7 @@ function renderFormattedProseLeaves(
         return (
           <span
             key={`u-latex-${baseKey}-${tIdx}`}
-            className="underline decoration-2 underline-offset-4 decoration-blue-600 dark:decoration-blue-400 font-semibold text-inherit inline"
+            className="underline decoration-solid decoration-2 underline-offset-4 decoration-black dark:decoration-white font-normal text-inherit inline"
           >
             {renderFormattedProseLeaves(inner, baseKey * 100 + tIdx, highlights, onHighlightClick)}
           </span>
@@ -769,10 +770,13 @@ export default function MathRenderer({ text, className = '', highlights, onHighl
     const fullMatch = match[0];
 
     // Check if it's a false-positive $...$ matching between two standalone currency amounts in prose
-    // e.g. "$15 each and $20 total" -> naive regex matches "$15 each and $"
+    // e.g. "$7.99 item seem like it costs $7" -> naive regex matches "$7.99 item seem like it costs $"
     if (fullMatch.startsWith('$') && fullMatch.endsWith('$') && fullMatch.length > 2 && !fullMatch.includes('\\')) {
       const inner = fullMatch.slice(1, -1);
-      if (/\b(?:and|each|the|for|per|is|was|were|of|in|to|with|from|total|cost|price|bought|spent|earned|saved|where|which|equation)\b/i.test(inner)) {
+      const words = inner.match(/\b[a-zA-Z]{2,}\b/g) || [];
+      const nonMathWords = words.filter((w) => !/^(?:sin|cos|tan|log|ln|lim|max|min|det|deg|rad|var|mod|and|or|is|if|for|all|not)$/i.test(w));
+      if (nonMathWords.length >= 2) {
+        mathRegex.lastIndex = start + 1;
         continue;
       }
     }
