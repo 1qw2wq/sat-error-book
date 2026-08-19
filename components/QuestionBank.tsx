@@ -64,6 +64,7 @@ import {
   transformRawToBluebookQuestion,
   transformRawToErrorItem,
   splitPassageAndPrompt,
+  restoreUnderline,
   formatSelections,
   normalizeAnswer,
 } from '@/lib/questionBank';
@@ -807,7 +808,7 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
     // Build question-by-question summaries for Practice History Review
     const questionSummaries = testingSession.rawQuestions.map((raw, idx) => {
       const userAns = results.answers[idx] || '';
-      const parsed = splitPassageAndPrompt(raw.question);
+      const parsed = splitPassageAndPrompt(raw.question, raw.section, raw.explanations);
       const isCorrect = evaluateSATQuestionAnswer(userAns, raw.answers, formatSelections(raw.selections));
       return {
         questionId: raw.question_id,
@@ -2089,7 +2090,7 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
 
                     {/* Question Content with MathRenderer */}
                     <div className="text-base text-slate-900 dark:text-slate-100 leading-relaxed font-serif my-2 p-3 sm:p-4 rounded-xl bg-slate-50/70 dark:bg-slate-900/40 border border-slate-200/80 dark:border-slate-800 overflow-x-auto min-w-0 w-full">
-                      <MathRenderer text={q.question} />
+                      <MathRenderer text={restoreUnderline(q.question, q.explanations)} />
                     </div>
 
                     {/* Choices */}

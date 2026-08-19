@@ -5,12 +5,14 @@ import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
 import MathRenderer, { HighlightItem, convertMathmlToLatex } from './MathRenderer';
+import { restoreUnderline } from '@/lib/questionBank';
 
 interface MarkdownRendererProps {
   content: string;
   className?: string;
   highlights?: HighlightItem[];
   onHighlightClick?: (highlight: HighlightItem, e: React.MouseEvent) => void;
+  explanation?: string;
 }
 
 /**
@@ -23,6 +25,7 @@ export default function MarkdownRenderer({
   className = '',
   highlights,
   onHighlightClick,
+  explanation,
 }: MarkdownRendererProps) {
   const normalizedContent = useMemo(() => {
     if (!content) return '';
@@ -30,6 +33,11 @@ export default function MarkdownRenderer({
     // Normalize literal escaped "\n" into actual newlines if the string has no real newlines
     if (text.includes('\\n') && !text.includes('\n')) {
       text = text.replace(/\\n/g, '\n');
+    }
+
+    // Auto-restore underline if text mentions underlined but lacks <u> tags
+    if (text.includes('underlined') && !/<u[\s>]|\\underline|<ins[\s>]/i.test(text)) {
+      text = restoreUnderline(text, explanation);
     }
 
     // Pre-convert MathML <math>...</math> tags into LaTeX math $...$ before passing to ReactMarkdown.
@@ -42,7 +50,7 @@ export default function MarkdownRenderer({
     }
 
     return text;
-  }, [content]);
+  }, [content, explanation]);
 
   if (!normalizedContent) return null;
 
@@ -72,12 +80,12 @@ export default function MarkdownRenderer({
             </div>
           ),
           u: ({ children }) => (
-            <span className="underline decoration-2 underline-offset-4 decoration-current font-normal inline">
+            <span className="underline decoration-2 underline-offset-4 decoration-blue-600 dark:decoration-blue-400 font-semibold text-inherit inline">
               {renderChildrenWithMath(children)}
             </span>
           ),
           ins: ({ children }) => (
-            <ins className="underline decoration-2 underline-offset-4 decoration-current no-underline inline">
+            <ins className="underline decoration-2 underline-offset-4 decoration-blue-600 dark:decoration-blue-400 font-semibold text-inherit inline no-underline">
               {renderChildrenWithMath(children)}
             </ins>
           ),

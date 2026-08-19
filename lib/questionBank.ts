@@ -5,19 +5,6 @@ import { formatMathText, formatMathChoice } from '@/lib/mathFormatter';
 export type { BluebookQuestionItem };
 
 /**
- * Splits text into grammatical sentences without falsely splitting on abbreviations or decimals.
- */
-function splitEnglishSentences(text: string): string[] {
-  if (!text) return [];
-  const safe = text
-    .replace(/\b(e\.g\.|i\.e\.|etc\.|vs\.|al\.|Dr\.|Mr\.|Mrs\.|Ms\.|Prof\.)/gi, (m) => m.replace(/\./g, '@DOT@'))
-    .replace(/(\d)\.(\d)/g, '$1@DOT@$2');
-
-  const chunks = safe.split(/(?<=[.!?])\s+(?=[A-Z“"\[])/);
-  return chunks.map((c) => c.replace(/@DOT@/g, '.').trim()).filter(Boolean);
-}
-
-/**
  * Automatically restores missing <u>...</u> tags for questions mentioning underlined portions/sentences.
  */
 export function restoreUnderline(
@@ -33,62 +20,113 @@ export function restoreUnderline(
     return questionText;
   }
 
-  const explStr = explanation || '';
+  const expl = explanation || '';
 
   // 1. Direct quote extraction from explanation after 划线 / 画线
   const matchPats = [
-    /[划画]线(?:短语|部分|句|词|句子|内容|文本)?[\s\S]{0,60}?[“"']([^“”"'\n]{3,180})[”"']/g,
-    /[“"']([a-zA-Z0-9\s,.'\-\–—;:!?()\[\]]{6,150})[”"']/g,
+    /[划画]线(?:短语|部分|句|词|句子|内容|文本|主张|观点)?[\s\S]{0,60}?[“"']([^“”"'\n]{3,250})[”"']/g,
+    /“([^“”\n]{6,250})”/g,
+    /"([^"\n]{6,250})"/g,
   ];
 
   for (const pat of matchPats) {
     let m: RegExpExecArray | null;
-    while ((m = pat.exec(explStr)) !== null) {
+    while ((m = pat.exec(expl)) !== null) {
       const cand = m[1].trim();
       if (cand && cand.length >= 4 && questionText.includes(cand)) {
-        const idx = questionText.indexOf(cand);
-        const promptIdx = questionText.toLowerCase().lastIndexOf('which choice');
-        if (promptIdx === -1 || idx < promptIdx) {
-          return questionText.replace(cand, `<u>${cand}</u>`);
-        }
+        return questionText.replace(cand, `<u>${cand}</u>`);
       }
     }
   }
 
-  // 2. Sentence-level heuristics when prompt specifically asks about sentence or portion
-  const promptIdx = questionText.toLowerCase().lastIndexOf('which choice');
-  const passage = (promptIdx > 20 ? questionText.substring(0, promptIdx) : questionText).trim();
-  const sentences = splitEnglishSentences(passage);
-
-  if (sentences.length > 0) {
-    // If explanation explicitly mentions transition / contrast or specific sentence keywords
-    if (
-      /[划画]线[\s\S]{0,30}?(?:然而|但是|不过|相反|却|第二句|第三句)/i.test(explStr) ||
-      /“然而”|“但是”/i.test(explStr)
-    ) {
-      const transSent = sentences.find((s) =>
-        /^(?:However|Yet|Nonetheless|Nevertheless|But|In contrast|On the other hand)\b/i.test(s)
-      );
-      if (transSent) {
-        return questionText.replace(transSent, `<u>${transSent}</u>`);
+  // Look for English sentence snippets mentioned in Chinese explanation
+  const englishSnippetPat = /([A-Za-z][A-Za-z0-9\s,.'\-\–—;:!?()]{10,200})/g;
+  let em: RegExpExecArray | null;
+  while ((em = englishSnippetPat.exec(expl)) !== null) {
+    const cand = em[1].trim();
+    if (cand.length >= 15 && questionText.includes(cand)) {
+      const idx = questionText.indexOf(cand);
+      const promptMatch = questionText.match(/(?:Which (?:choice|finding|statement|quotation|sentence|idea|detail|claim)|Based on the)/i);
+      const pIdx = promptMatch ? promptMatch.index : -1;
+      if (pIdx === -1 || (pIdx !== undefined && idx < pIdx)) {
+        return questionText.replace(cand, `<u>${cand}</u>`);
       }
     }
+  }
 
-    if (/[划画]线[\s\S]{0,30}?(?:第一句|首句|首先)/i.test(explStr)) {
-      return questionText.replace(sentences[0], `<u>${sentences[0]}</u>`);
-    }
+  // Find prompt boundary
+  const promptMatch = questionText.match(/(?:Which (?:choice|finding|statement|quotation|sentence|idea|detail|claim|example)|Based on the|According to the)/i);
+  const promptIdx = promptMatch && promptMatch.index !== undefined ? promptMatch.index : questionText.length;
 
-    const transSent = sentences.find((s) =>
-      /^(?:However|Yet|Nonetheless|Nevertheless|But|In contrast|On the other hand)\b/i.test(s)
-    );
-    if (transSent && /然而|但是|不过|转折/i.test(explStr)) {
-      return questionText.replace(transSent, `<u>${transSent}</u>`);
-    }
+  if (promptIdx > 20) {
+    const passage = questionText.substring(0, promptIdx).trim();
+    // Split sentences
+    const sentences = passage
+      .split(/(?<=[.!?])\s+(?=[A-Z“"\[0-9])/)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 8);
 
-    // Default to the last sentence of stimulus if prompt asks for "underlined sentence"
-    const lastSentence = sentences[sentences.length - 1];
-    if (lastSentence) {
-      return questionText.replace(lastSentence, `<u>${lastSentence}</u>`);
+    if (sentences.length > 0) {
+      if (/第一句|首句|开头/i.test(expl)) {
+        return questionText.replace(sentences[0], `<u>${sentences[0]}</u>`);
+      }
+      if (/第二句/i.test(expl) && sentences.length > 1) {
+        return questionText.replace(sentences[1], `<u>${sentences[1]}</u>`);
+      }
+      if (/第三句/i.test(expl) && sentences.length > 2) {
+        return questionText.replace(sentences[2], `<u>${sentences[2]}</u>`);
+      }
+      if (/最后一句|末句|结尾/i.test(expl)) {
+        const last = sentences[sentences.length - 1];
+        return questionText.replace(last, `<u>${last}</u>`);
+      }
+      if (/倒数第二句/i.test(expl) && sentences.length > 1) {
+        const pen = sentences[sentences.length - 2];
+        return questionText.replace(pen, `<u>${pen}</u>`);
+      }
+      if (/然而|但是|不过|相反|却/i.test(expl)) {
+        const transSent = sentences.find((s) =>
+          /^(?:However|Yet|Nonetheless|Nevertheless|But|In contrast|On the other hand)\b/i.test(s)
+        );
+        if (transSent) {
+          return questionText.replace(transSent, `<u>${transSent}</u>`);
+        }
+      }
+      if (/同样|正如|类似|不仅/i.test(expl)) {
+        const transSent = sentences.find((s) =>
+          /^(?:Likewise|Similarly|In the same way|Equally|Furthermore|Moreover)\b/i.test(s)
+        );
+        if (transSent) {
+          return questionText.replace(transSent, `<u>${transSent}</u>`);
+        }
+      }
+
+      // Check if words in explanation match a specific sentence in the stimulus
+      let bestSent: string | null = null;
+      let maxOverlap = 0;
+      for (const sent of sentences) {
+        const words = sent.toLowerCase().match(/\b[a-z]{4,}\b/g) || [];
+        let score = 0;
+        for (const w of words) {
+          if (expl.toLowerCase().includes(w)) {
+            score++;
+          }
+        }
+        if (score > maxOverlap) {
+          maxOverlap = score;
+          bestSent = sent;
+        }
+      }
+
+      if (bestSent && maxOverlap >= 2) {
+        return questionText.replace(bestSent, `<u>${bestSent}</u>`);
+      }
+
+      // Default: the target is usually the last sentence or the second sentence in the stimulus
+      const targetSentence = sentences.length > 1 ? sentences[sentences.length - 1] : sentences[0];
+      if (targetSentence) {
+        return questionText.replace(targetSentence, `<u>${targetSentence}</u>`);
+      }
     }
   }
 

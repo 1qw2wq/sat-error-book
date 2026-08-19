@@ -3,6 +3,7 @@
 import React, { useMemo } from 'react';
 import katex from 'katex';
 import { formatMathText } from '@/lib/mathFormatter';
+import { restoreUnderline } from '@/lib/questionBank';
 
 export interface HighlightItem {
   id: string;
@@ -17,6 +18,7 @@ interface MathRendererProps {
   className?: string;
   highlights?: HighlightItem[];
   onHighlightClick?: (highlight: HighlightItem, e: React.MouseEvent) => void;
+  explanation?: string;
 }
 
 // Check if a string is an image URL
@@ -687,7 +689,7 @@ function MathJaxMml({ mathml, isBlock = false }: { mathml: string; isBlock?: boo
 /**
  * High-precision MathRenderer supporting native MathML via MathJax and LaTeX via KaTeX.
  */
-export default function MathRenderer({ text, className = '', highlights, onHighlightClick }: MathRendererProps) {
+export default function MathRenderer({ text, className = '', highlights, onHighlightClick, explanation }: MathRendererProps) {
   const isImage = useMemo(() => {
     if (!text) return false;
     return isPureImageUrl(text.trim());
@@ -695,8 +697,12 @@ export default function MathRenderer({ text, className = '', highlights, onHighl
 
   const processedText = useMemo(() => {
     if (!text || isImage) return '';
-    return formatMathText(text);
-  }, [text, isImage]);
+    let formatted = formatMathText(text);
+    if (formatted.includes('underlined') && !/<u[\s>]|\\underline|<ins[\s>]/i.test(formatted)) {
+      formatted = restoreUnderline(formatted, explanation);
+    }
+    return formatted;
+  }, [text, isImage, explanation]);
 
   if (!text) return null;
 
