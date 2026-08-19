@@ -30,10 +30,22 @@ export function cleanMathEquation(eq: string): string {
  */
 export function formatMathText(rawText: string): string {
   if (!rawText) return '';
-  return rawText
+  let s = rawText
     .replace(/[\u200B\uFEFF]/g, '')
     .replace(/\r\n/g, '\n')
     .trim();
+
+  if (s.includes('\\n') && !s.includes('\n')) {
+    s = s.replace(/\\n/g, '\n');
+  }
+
+  // 1. Auto line breaks before option choices (A), (B), (C), (D) or A), B), C), D) or A., B., C., D. or 选项A in prose
+  s = s.replace(/([^\n])\s*(\([A-Da-d]\)|[A-Da-d]\)|[A-Da-d]\.|选项[A-Da-d])\s*/g, '$1\n$2 ');
+
+  // 2. Auto line break before conclusions "所以选", "故选", "因此选"
+  s = s.replace(/([^\n])\s*(所以选|故选|因此选)\s*/g, '$1\n$2 ');
+
+  return s;
 }
 
 /**

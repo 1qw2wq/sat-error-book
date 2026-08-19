@@ -35,6 +35,12 @@ export default function MarkdownRenderer({
       text = text.replace(/\\n/g, '\n');
     }
 
+    // Auto line breaks before option choices (A), (B), (C), (D) or A), B), C), D) or A., B., C., D. or 选项A
+    text = text.replace(/([^\n])\s*(\([A-Da-d]\)|[A-Da-d]\)|[A-Da-d]\.|选项[A-Da-d])\s*/g, '$1\n$2 ');
+
+    // Auto line break before conclusion "所以选", "故选", "因此选"
+    text = text.replace(/([^\n])\s*(所以选|故选|因此选)\s*/g, '$1\n$2 ');
+
     // Auto-restore underline if text mentions underlined but lacks <u> tags
     if (text.includes('underlined') && !/<u[\s>]|\\underline|<ins[\s>]/i.test(text)) {
       text = restoreUnderline(text, explanation);
@@ -48,6 +54,51 @@ export default function MarkdownRenderer({
         return `$${latex}$`;
       });
     }
+
+    // Convert un-delimited LaTeX commands, caret superscripts (e.g. 4x^2, p^2, 8^2), and subscripts outside $...$
+    const tokens: { type: 'prose' | 'math'; text: string }[] = [];
+    const tagRegex = /(<math[\s\S]*?<\/math>|\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\$[^\$\n]+?\$)/gi;
+    let lastIdx = 0;
+    let match: RegExpExecArray | null;
+
+    while ((match = tagRegex.exec(text)) !== null) {
+      if (match.index > lastIdx) {
+        tokens.push({ type: 'prose', text: text.substring(lastIdx, match.index) });
+      }
+      tokens.push({ type: 'math', text: match[0] });
+      lastIdx = tagRegex.lastIndex;
+    }
+    if (lastIdx < text.length) {
+      tokens.push({ type: 'prose', text: text.substring(lastIdx) });
+    }
+
+    const processedTokens = tokens.map((token) => {
+      if (token.type === 'math') return token.text;
+
+      let prose = token.text;
+
+      // Convert raw LaTeX commands like \Delta, \frac{...}{...}, \sqrt{...}, \alpha, \beta, \theta, \pi, \le, \ge, \pm, \times
+      prose = prose.replace(/(\\([a-zA-Z]+)(?:\{[^\}]*\}|\b))/g, (full) => {
+        if (full === '\\n' || full === '\\t' || full === '\\r') return full;
+        return `$${full}$`;
+      });
+
+      // Replace unicode Delta (Δ) if used as math symbol in prose
+      prose = prose.replace(/Δ\s*=\s*/g, '$\\Delta =$ ');
+
+      // Convert caret superscripts like 4x^2, p^2, k^2, 8^2, 10^2, 20^2 outside $ into $...$
+      prose = prose.replace(/([a-zA-Z0-9_\(\)]+)\^([a-zA-Z0-9]+|\{[^\}]+\})/g, '$$$1^{$2}$$$');
+
+      // Convert subscripts like x_1, a_n outside $ into $...$
+      prose = prose.replace(/([a-zA-Z0-9]+)_([a-zA-Z0-9]+|\{[^\}]+\})/g, '$$$1_{$2}$$$');
+
+      // Clean up any double/triple dollars created
+      prose = prose.replace(/\$\$+/g, '$');
+
+      return prose;
+    });
+
+    text = processedTokens.join('');
 
     return text;
   }, [content, explanation]);

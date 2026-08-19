@@ -362,6 +362,14 @@ export function convertMathmlToLatex(mathml: string): string {
     if (!str) return '';
     let res = str;
 
+    // Unwrap mstyle, mrow, mpadded container tags first if present so splitMathmlNodes sees distinct elements
+    let prevContainer = '';
+    while (res !== prevContainer) {
+      prevContainer = res;
+      res = res.replace(/<mstyle[^>]*>([\s\S]*?)<\/mstyle>/gi, '$1');
+      res = res.replace(/<mpadded[^>]*>([\s\S]*?)<\/mpadded>/gi, '$1');
+    }
+
     // Parse mtable first before stripping row/cell wrappers
     res = res.replace(/<mtable[^>]*>([\s\S]*?)<\/mtable>/gi, (_, inner) => {
       const rows = inner.match(/<mtr[^>]*>[\s\S]*?<\/mtr>/gi) || [inner];
@@ -372,8 +380,21 @@ export function convertMathmlToLatex(mathml: string): string {
       return `\\begin{matrix} ${latexRows} \\end{matrix}`;
     });
 
-    // Parse mroot BEFORE child tags like msup/msub so root index is not stripped
+    // Recursively parse mfrac FIRST on raw MathML XML tags before converting inner tags to LaTeX strings
     let prev = '';
+    while (res !== prev) {
+      prev = res;
+      res = res.replace(/<mfrac[^>]*>([\s\S]*?)<\/mfrac>/gi, (_, inner) => {
+        const parts = splitMathmlNodes(inner);
+        if (parts.length >= 2) {
+          return `\\frac{${parseNodes(parts[0])}}{${parseNodes(parts[1])}}`;
+        }
+        return `\\frac{${parseNodes(inner)}}{}`;
+      });
+    }
+
+    // Parse mroot BEFORE child tags like msup/msub so root index is not stripped
+    prev = '';
     while (res !== prev) {
       prev = res;
       res = res.replace(/<mroot[^>]*>([\s\S]*?)<\/mroot>/gi, (_, inner) => {
@@ -387,19 +408,6 @@ export function convertMathmlToLatex(mathml: string): string {
 
     // Parse msqrt
     res = res.replace(/<msqrt[^>]*>([\s\S]*?)<\/msqrt>/gi, (_, inner) => `\\sqrt{${parseNodes(inner)}}`);
-
-    // Recursively parse mfrac
-    prev = '';
-    while (res !== prev) {
-      prev = res;
-      res = res.replace(/<mfrac[^>]*>([\s\S]*?)<\/mfrac>/gi, (_, inner) => {
-        const parts = splitMathmlNodes(inner);
-        if (parts.length >= 2) {
-          return `\\frac{${parseNodes(parts[0])}}{${parseNodes(parts[1])}}`;
-        }
-        return `\\frac{${parseNodes(inner)}}{}`;
-      });
-    }
 
     // Recursively parse mmsubsup
     prev = '';
@@ -470,7 +478,7 @@ export function convertMathmlToLatex(mathml: string): string {
     res = res.replace(/<menclose[^>]*>([\s\S]*?)<\/menclose>/gi, (_, inner) => `\\boxed{${parseNodes(inner)}}`);
 
     // Unwrap mstyle, mrow, mpadded, mtr, mtd, math wrappers AFTER splitting structural tags
-    let prevContainer = '';
+    prevContainer = '';
     while (res !== prevContainer) {
       prevContainer = res;
       res = res.replace(/<mstyle[^>]*>([\s\S]*?)<\/mstyle>/gi, '$1');
