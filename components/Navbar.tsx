@@ -39,7 +39,7 @@ export default function Navbar({
           onClick={() => onTabChange('dashboard')}
           className="flex items-center gap-2.5 cursor-pointer group select-none"
         >
-          <div className="w-10 h-10 rounded-xl overflow-hidden shadow-xs group-hover:scale-105 transition-transform bg-gradient-to-br from-indigo-900 to-blue-600 flex items-center justify-center border border-slate-200/80 dark:border-slate-700/80 shrink-0">
+          <div className="w-10 h-10 rounded-xl overflow-hidden shadow-xs group-hover:scale-105 transition-transform bg-gradient-to-br from-indigo-900 via-blue-700 to-indigo-600 flex items-center justify-center border border-slate-200/80 dark:border-slate-700/80 shrink-0 text-white relative">
             <img
               src="/logo.svg"
               alt="SAT Error Book Logo"
@@ -48,9 +48,18 @@ export default function Navbar({
                 if (!target.dataset.triedFallback) {
                   target.dataset.triedFallback = 'true';
                   target.src = '/logo.png';
+                } else {
+                  target.style.display = 'none';
+                  const parent = target.parentElement;
+                  if (parent && !parent.querySelector('.fallback-icon')) {
+                    const fallback = document.createElement('div');
+                    fallback.className = 'fallback-icon flex items-center justify-center w-full h-full font-black text-amber-300 text-xs font-mono tracking-tighter';
+                    fallback.innerText = '1600';
+                    parent.appendChild(fallback);
+                  }
                 }
               }}
-              className="w-full h-full object-cover"
+              className="w-full h-full object-contain p-0.5"
             />
           </div>
           <div>

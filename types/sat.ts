@@ -195,16 +195,63 @@ export interface PracticePreset {
   createdAt: string;
 }
 
+export interface HistoryQuestionSummary {
+  questionId: number | string;
+  questionNo: number;
+  section?: string;
+  subTopic?: string;
+  questionPrompt: string;
+  passageText?: string;
+  userAnswer?: string;
+  correctAnswer: string;
+  isCorrect: boolean;
+  explanation?: string;
+  difficulty?: number;
+  choices?: string[];
+  graphData?: any;
+}
+
 export interface PracticeHistoryItem {
   id: string;
   title: string;
   section: string;
   domain: string;
+  examType?: 'official_full' | 'official_section' | 'custom_drill' | 'single_question';
+  examName?: string;
   questionCount: number;
   score?: number; // e.g. 18 / 20
+  totalQuestions?: number;
   percentage?: number;
+  scaledTotalScore?: number; // e.g. 1460 / 1600
+  scaledRwScore?: number;    // e.g. 720 / 800
+  scaledMathScore?: number;  // e.g. 740 / 800
   timeSpentSeconds: number;
   completedAt: string;
+  presetConfig?: Partial<PracticePreset>;
+  questionSummaries?: HistoryQuestionSummary[];
+}
+
+export interface SavedTestSession {
+  id: string;
+  title: string;
+  sectionName: string;
+  examType: 'official_full' | 'official_section' | 'custom_drill' | 'single_question';
+  examName?: string;
+  createdAt: string;
+  lastSavedAt: string;
+  questions: any[]; // BluebookQuestionItem[]
+  rawQuestions: any[]; // RawSATQuestion[]
+  answers: Record<number, string>;
+  markedForReview: Record<number, boolean>;
+  currentIndex: number;
+  currentModuleIdx: number;
+  timeSpentSeconds: number;
+  moduleTimeLeft: number;
+  timerSeconds?: number;
+  perQuestionTimerSeconds?: number;
+  isUntimed?: boolean;
+  isOfficialExam?: boolean;
+  instantFeedback?: boolean;
   presetConfig?: Partial<PracticePreset>;
 }
 

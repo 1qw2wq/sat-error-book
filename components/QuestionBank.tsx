@@ -57,6 +57,7 @@ import {
   SATErrorItem,
   PracticePreset,
   PracticeHistoryItem,
+  SavedTestSession,
 } from '@/types/sat';
 import { SAT_DOMAINS } from '@/lib/satDomains';
 import {
@@ -73,6 +74,7 @@ import MathRenderer from './MathRenderer';
 import MarkdownRenderer from './MarkdownRenderer';
 import GraphRenderer from './GraphRenderer';
 import QuestionJsonEditModal from './QuestionJsonEditModal';
+import PracticeHistoryView from './PracticeHistoryView';
 import {
   saveError,
   importErrorsBatch,
@@ -82,6 +84,8 @@ import {
   getPracticeHistory,
   addPracticeHistoryItem,
   clearPracticeHistory,
+  getSavedTestSessions,
+  deleteSavedTestSession,
 } from '@/lib/db';
 
 interface QuestionBankProps {
@@ -102,7 +106,7 @@ function getStoredBuilderState() {
 
 export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
   // Main view navigation inside Question Bank
-  const [activeTab, setActiveTab] = useState<'exams' | 'builder' | 'browser'>('exams');
+  const [activeTab, setActiveTab] = useState<'exams' | 'builder' | 'browser' | 'history'>('exams');
 
   // Summary and statistics
   const [stats, setStats] = useState<{
@@ -177,14 +181,20 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
   const [isCountingPool, setIsCountingPool] = useState<boolean>(false);
   const [isGeneratingTest, setIsGeneratingTest] = useState<boolean>(false);
 
-  // Saved Presets & Drill History State (initialized lazily)
+  // Saved Presets, Saved Test Sessions & Drill History State (initialized lazily)
   const [presets, setPresets] = useState<PracticePreset[]>(() => getSavedPracticePresets());
   const [activePresetId, setActivePresetId] = useState<string | null>(null);
   const [drillHistory, setDrillHistory] = useState<PracticeHistoryItem[]>(() => getPracticeHistory());
+  const [savedSessions, setSavedSessions] = useState<SavedTestSession[]>(() => getSavedTestSessions());
   const [showHistoryModal, setShowHistoryModal] = useState<boolean>(false);
   const [showSavePresetModal, setShowSavePresetModal] = useState<boolean>(false);
   const [newPresetTitle, setNewPresetTitle] = useState<string>('');
   const [newPresetDesc, setNewPresetDesc] = useState<string>('');
+
+  const refreshHistoryAndSaved = useCallback(() => {
+    setDrillHistory(getPracticeHistory());
+    setSavedSessions(getSavedTestSessions());
+  }, []);
 
   // Question Browser State
   const [browserQuestions, setBrowserQuestions] = useState<RawSATQuestion[]>([]);
@@ -246,6 +256,15 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
     isUntimed?: boolean;
     isOfficialExam?: boolean;
     instantFeedback: boolean;
+    initialAnswers?: Record<number, string>;
+    initialMarkedForReview?: Record<number, boolean>;
+    initialCurrentIndex?: number;
+    initialCurrentModuleIdx?: number;
+    initialTimeSpentSeconds?: number;
+    initialModuleTimeLeft?: number;
+    savedSessionId?: string;
+    examType?: 'official_full' | 'official_section' | 'custom_drill' | 'single_question';
+    presetConfig?: any;
   } | null>(null);
 
   // Completed Test Results with Comprehensive Scoring
@@ -721,7 +740,7 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
     });
   };
 
-  // Finish Bluebook Test Handler - Runs Advanced Scoring Engine
+  // Finish Bluebook Test Handler - Runs Advanced Scoring Engine & Persists History
   const handleFinishTest = (results: {
     answers: Record<number, string>;
     markedForReview: Record<number, boolean>;
@@ -747,34 +766,104 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
       scoreReport,
     });
 
-    // Save custom drill attempt to history safely (prevent data loss)
-    if (testingSession.title.includes('Custom SAT Drill')) {
-      const historyItem: PracticeHistoryItem = {
-        id: `drill-hist-${Date.now()}`,
-        title: testingSession.title,
+    // Build question-by-question summaries for Practice History Review
+    const questionSummaries = testingSession.rawQuestions.map((raw, idx) => {
+      const userAns = results.answers[idx] || '';
+      const parsed = splitPassageAndPrompt(raw.question);
+      const isCorrect = evaluateSATQuestionAnswer(userAns, raw.answers, formatSelections(raw.selections));
+      return {
+        questionId: raw.question_id,
+        questionNo: raw.question_no || idx + 1,
+        section: raw.section,
+        subTopic: raw.category || raw.section,
+        questionPrompt: parsed.questionPrompt || raw.question,
+        passageText: parsed.passageText,
+        userAnswer: userAns,
+        correctAnswer: raw.answers,
+        isCorrect,
+        explanation: raw.explanations,
+        difficulty: raw.difficulty,
+        choices: formatSelections(raw.selections),
+        graphData: raw.graphs,
+      };
+    });
+
+    // Determine Exam Category for History
+    const examType: 'official_full' | 'official_section' | 'custom_drill' | 'single_question' = testingSession.isOfficialExam
+      ? testingSession.title.includes('Full-Length')
+        ? 'official_full'
+        : 'official_section'
+      : testingSession.questions.length === 1
+      ? 'single_question'
+      : 'custom_drill';
+
+    const firstQ = testingSession.rawQuestions[0];
+    const defaultSectionName = firstQ ? firstQ.section : testingSession.sectionName;
+
+    const historyItem: PracticeHistoryItem = {
+      id: `practice-hist-${Date.now()}`,
+      title: testingSession.title,
+      section: defaultSectionName,
+      domain: builderDomain || 'All',
+      examType,
+      examName: testingSession.title,
+      questionCount: testingSession.rawQuestions.length,
+      totalQuestions: scoreReport.totalQuestions,
+      score: scoreReport.totalCorrect,
+      percentage: Math.round((scoreReport.totalCorrect / Math.max(1, scoreReport.totalQuestions)) * 100),
+      scaledTotalScore: scoreReport.totalScaledScore,
+      scaledRwScore: scoreReport.readingWriting?.scaledScore,
+      scaledMathScore: scoreReport.math?.scaledScore,
+      timeSpentSeconds: results.timeSpentSeconds,
+      completedAt: new Date().toISOString(),
+      presetConfig: {
         section: builderSection,
         domain: builderDomain,
-        questionCount: testingSession.rawQuestions.length,
-        score: scoreReport.totalCorrect,
-        percentage: Math.round((scoreReport.totalCorrect / Math.max(1, scoreReport.totalQuestions)) * 100),
-        timeSpentSeconds: results.timeSpentSeconds,
-        completedAt: new Date().toISOString(),
-        presetConfig: {
-          section: builderSection,
-          domain: builderDomain,
-          module: builderModule,
-          difficultyRange: builderDifficultyRange,
-          type: builderType,
-          timerMode: builderTimerMode,
-          deliveryMode: builderDeliveryMode,
-        },
-      };
-      const updatedHistory = addPracticeHistoryItem(historyItem);
-      setDrillHistory(updatedHistory);
+        module: builderModule,
+        difficultyRange: builderDifficultyRange,
+        type: builderType,
+        timerMode: builderTimerMode,
+        deliveryMode: builderDeliveryMode,
+      },
+      questionSummaries,
+    };
+
+    const updatedHistory = addPracticeHistoryItem(historyItem);
+    setDrillHistory(updatedHistory);
+
+    // If this test was resumed from a saved session, delete that saved session now
+    if (testingSession.savedSessionId) {
+      deleteSavedTestSession(testingSession.savedSessionId);
+      setSavedSessions(getSavedTestSessions());
     }
 
     setSavedAllMissedSuccess(false);
     setTestingSession(null);
+  };
+
+  // Resume a saved test session from Save & Exit
+  const handleResumeSavedTest = (session: SavedTestSession) => {
+    setTestingSession({
+      isOpen: true,
+      title: session.title,
+      sectionName: session.sectionName,
+      questions: session.questions,
+      rawQuestions: session.rawQuestions,
+      timerSeconds: session.timerSeconds || 0,
+      perQuestionTimerSeconds: session.perQuestionTimerSeconds || 0,
+      isUntimed: session.isUntimed,
+      isOfficialExam: session.isOfficialExam,
+      instantFeedback: session.instantFeedback || false,
+      initialAnswers: session.answers,
+      initialMarkedForReview: session.markedForReview,
+      initialCurrentIndex: session.currentIndex,
+      initialCurrentModuleIdx: session.currentModuleIdx,
+      initialTimeSpentSeconds: session.timeSpentSeconds,
+      initialModuleTimeLeft: session.moduleTimeLeft,
+      savedSessionId: session.id,
+      examType: session.examType,
+      presetConfig: session.presetConfig,
+    });
   };
 
   // Add individual question to SAT Error Book
@@ -943,6 +1032,26 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
           >
             <Search className="w-4 h-4" />
             <span>Question Explorer</span>
+          </button>
+
+          <button
+            onClick={() => {
+              refreshHistoryAndSaved();
+              setActiveTab('history');
+            }}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all relative ${
+              activeTab === 'history'
+                ? 'bg-white dark:bg-slate-900 text-amber-600 dark:text-amber-400 shadow-xs'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <History className="w-4 h-4" />
+            <span>Practice History & Saved Tests</span>
+            {savedSessions.length > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-amber-500 text-white animate-pulse">
+                {savedSessions.length}
+              </span>
+            )}
           </button>
         </div>
 
@@ -2014,6 +2123,35 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
       )}
 
       {/* ========================================================================= */}
+      {/* TAB 4: PRACTICE HISTORY & SAVED PAUSED TEST SESSIONS                      */}
+      {/* ========================================================================= */}
+      {activeTab === 'history' && (
+        <PracticeHistoryView
+          history={drillHistory}
+          savedSessions={savedSessions}
+          onResumeSavedTest={handleResumeSavedTest}
+          onRetakeTest={(item) => {
+            if (item.presetConfig) {
+              if (item.presetConfig.section) setBuilderSection(item.presetConfig.section as any);
+              if (item.presetConfig.domain) setBuilderDomain(item.presetConfig.domain);
+              if (item.presetConfig.module) setBuilderModule(item.presetConfig.module as any);
+              if (item.presetConfig.difficultyRange) setBuilderDifficultyRange(item.presetConfig.difficultyRange);
+              if (item.presetConfig.type) setBuilderType(item.presetConfig.type as any);
+              if (item.presetConfig.timerMode) setBuilderTimerMode(item.presetConfig.timerMode as any);
+              if (item.presetConfig.deliveryMode) setBuilderDeliveryMode(item.presetConfig.deliveryMode as any);
+              setActiveTab('builder');
+            } else if (item.examName && combinedExams.length > 0) {
+              const matched = combinedExams.find(c => item.title.includes(c.baseName));
+              if (matched) {
+                handleStartCombinedExam(matched);
+              }
+            }
+          }}
+          onRefreshData={refreshHistoryAndSaved}
+        />
+      )}
+
+      {/* ========================================================================= */}
       {/* ACTIVE BLUEBOOK TEST SHELL MODAL                                           */}
       {/* ========================================================================= */}
       {testingSession && (
@@ -2021,12 +2159,26 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
           title={testingSession.title}
           sectionName={testingSession.sectionName}
           questions={testingSession.questions}
+          rawQuestions={testingSession.rawQuestions}
           timerSeconds={testingSession.timerSeconds}
           perQuestionTimerSeconds={testingSession.perQuestionTimerSeconds}
           isUntimed={testingSession.isUntimed}
           isOfficialExam={testingSession.isOfficialExam}
           instantFeedback={testingSession.instantFeedback}
+          initialAnswers={testingSession.initialAnswers}
+          initialMarkedForReview={testingSession.initialMarkedForReview}
+          initialCurrentIndex={testingSession.initialCurrentIndex}
+          initialCurrentModuleIdx={testingSession.initialCurrentModuleIdx}
+          initialTimeSpentSeconds={testingSession.initialTimeSpentSeconds}
+          initialModuleTimeLeft={testingSession.initialModuleTimeLeft}
+          savedSessionId={testingSession.savedSessionId}
+          examType={testingSession.examType}
+          presetConfig={testingSession.presetConfig}
           onFinishTest={handleFinishTest}
+          onSaveAndExit={() => {
+            setSavedSessions(getSavedTestSessions());
+            setTestingSession(null);
+          }}
           onClose={() => setTestingSession(null)}
         />
       )}

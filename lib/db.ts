@@ -598,10 +598,11 @@ export async function importFullDatabase(data: any): Promise<ImportResult> {
 // PRACTICE BUILDER PRESETS & HISTORY PERSISTENCE (Zero Data Loss)
 // =========================================================================
 
-import { PracticePreset, PracticeHistoryItem } from '@/types/sat';
+import { PracticePreset, PracticeHistoryItem, SavedTestSession } from '@/types/sat';
 
 const PRESETS_STORAGE_KEY = 'sat_practice_builder_presets_v1';
 const HISTORY_STORAGE_KEY = 'sat_practice_builder_history_v1';
+const SAVED_TESTS_STORAGE_KEY = 'sat_saved_test_sessions_v1';
 
 export function getDefaultPracticePresets(): PracticePreset[] {
   return [
@@ -763,11 +764,24 @@ export function addPracticeHistoryItem(item: PracticeHistoryItem): PracticeHisto
   if (typeof window === 'undefined') return [];
   try {
     const current = getPracticeHistory();
-    const updated = [item, ...current].slice(0, 30); // Keep last 30 drills
+    const updated = [item, ...current].slice(0, 50); // Keep last 50 practice tests
     localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(updated));
     return updated;
   } catch (err) {
     console.error('Failed to save practice history to localStorage:', err);
+    return [];
+  }
+}
+
+export function deletePracticeHistoryItem(id: string): PracticeHistoryItem[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const current = getPracticeHistory();
+    const updated = current.filter((h) => h.id !== id);
+    localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(updated));
+    return updated;
+  } catch (err) {
+    console.error('Failed to delete practice history item from localStorage:', err);
     return [];
   }
 }
@@ -778,6 +792,56 @@ export function clearPracticeHistory(): void {
     localStorage.removeItem(HISTORY_STORAGE_KEY);
   } catch (err) {
     console.error('Failed to clear practice history:', err);
+  }
+}
+
+// =========================================================================
+// SAVED / PAUSED TEST SESSIONS (Save & Exit Engine)
+// =========================================================================
+
+export function getSavedTestSessions(): SavedTestSession[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(SAVED_TESTS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    console.error('Failed to load saved test sessions from localStorage:', err);
+    return [];
+  }
+}
+
+export function saveTestSession(session: SavedTestSession): SavedTestSession[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const current = getSavedTestSessions();
+    const existingIdx = current.findIndex((s) => s.id === session.id);
+    let updated: SavedTestSession[];
+    if (existingIdx >= 0) {
+      updated = [...current];
+      updated[existingIdx] = session;
+    } else {
+      updated = [session, ...current];
+    }
+    localStorage.setItem(SAVED_TESTS_STORAGE_KEY, JSON.stringify(updated));
+    return updated;
+  } catch (err) {
+    console.error('Failed to save test session to localStorage:', err);
+    return [];
+  }
+}
+
+export function deleteSavedTestSession(id: string): SavedTestSession[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const current = getSavedTestSessions();
+    const updated = current.filter((s) => s.id !== id);
+    localStorage.setItem(SAVED_TESTS_STORAGE_KEY, JSON.stringify(updated));
+    return updated;
+  } catch (err) {
+    console.error('Failed to delete saved test session from localStorage:', err);
+    return [];
   }
 }
 

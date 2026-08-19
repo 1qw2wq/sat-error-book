@@ -29,14 +29,15 @@ import {
   Play,
   ArrowLeft,
   Sparkles,
+  Save,
 } from 'lucide-react';
 import MathRenderer from './MathRenderer';
 import GraphRenderer from './GraphRenderer';
 import MarkdownRenderer from './MarkdownRenderer';
 import { gradeStudentResponse, evaluateSATQuestionAnswer } from '../lib/answerGrading';
-import { saveError } from '../lib/db';
+import { saveError, saveTestSession } from '../lib/db';
 import { transformRawToErrorItem } from '../lib/questionBank';
-import { SATErrorItem, RawSATQuestion } from '../types/sat';
+import { SATErrorItem, RawSATQuestion, SavedTestSession } from '../types/sat';
 
 export interface BluebookQuestionItem {
   id: string;
@@ -83,6 +84,18 @@ interface BluebookTestShellProps {
   isOfficialExam?: boolean;
   instantFeedback?: boolean;
   disableHighlighting?: boolean;
+  // Saved and resumed test support
+  initialAnswers?: Record<number, string>;
+  initialMarkedForReview?: Record<number, boolean>;
+  initialCurrentIndex?: number;
+  initialCurrentModuleIdx?: number;
+  initialTimeSpentSeconds?: number;
+  initialModuleTimeLeft?: number;
+  savedSessionId?: string;
+  rawQuestions?: RawSATQuestion[];
+  examType?: 'official_full' | 'official_section' | 'custom_drill' | 'single_question';
+  presetConfig?: any;
+  onSaveAndExit?: (savedSession: SavedTestSession) => void;
   onFinishTest: (results: {
     answers: Record<number, string>;
     markedForReview: Record<number, boolean>;
@@ -276,6 +289,17 @@ export default function BluebookTestShell({
   isOfficialExam = false,
   instantFeedback = false,
   disableHighlighting = false,
+  initialAnswers,
+  initialMarkedForReview,
+  initialCurrentIndex,
+  initialCurrentModuleIdx,
+  initialTimeSpentSeconds,
+  initialModuleTimeLeft,
+  savedSessionId,
+  rawQuestions,
+  examType,
+  presetConfig,
+  onSaveAndExit,
   onFinishTest,
   onClose,
 }: BluebookTestShellProps) {
@@ -284,14 +308,24 @@ export default function BluebookTestShell({
     return buildModuleConfigs(questions, timerSeconds, perQuestionTimerSeconds, isUntimed, isOfficialExam);
   }, [questions, timerSeconds, perQuestionTimerSeconds, isUntimed, isOfficialExam]);
 
-  const [currentModuleIdx, setCurrentModuleIdx] = useState<number>(0);
+  const [currentModuleIdx, setCurrentModuleIdx] = useState<number>(() => {
+    if (typeof initialCurrentModuleIdx === 'number' && initialCurrentModuleIdx >= 0 && initialCurrentModuleIdx < modules.length) {
+      return initialCurrentModuleIdx;
+    }
+    return 0;
+  });
   const activeModule = modules[currentModuleIdx] || modules[0];
 
   // Navigation Index (Global index within questions array)
-  const [currentIndex, setCurrentIndex] = useState<number>(activeModule ? activeModule.startIndex : 0);
-  const [answers, setAnswers] = useState<Record<number, string>>({});
+  const [currentIndex, setCurrentIndex] = useState<number>(() => {
+    if (typeof initialCurrentIndex === 'number' && initialCurrentIndex >= 0 && initialCurrentIndex < questions.length) {
+      return initialCurrentIndex;
+    }
+    return activeModule ? activeModule.startIndex : 0;
+  });
+  const [answers, setAnswers] = useState<Record<number, string>>(() => initialAnswers || {});
   const [checkedQuestions, setCheckedQuestions] = useState<Record<number, boolean>>({});
-  const [markedForReview, setMarkedForReview] = useState<Record<number, boolean>>({});
+  const [markedForReview, setMarkedForReview] = useState<Record<number, boolean>>(() => initialMarkedForReview || {});
   const [eliminated, setEliminated] = useState<Record<number, Record<number, boolean>>>({});
   const [isEliminatorActive, setIsEliminatorActive] = useState<boolean>(false);
 
@@ -299,6 +333,8 @@ export default function BluebookTestShell({
   const [isReviewScreenOpen, setIsReviewScreenOpen] = useState<boolean>(false);
   const [isBreakScreenOpen, setIsBreakScreenOpen] = useState<boolean>(false);
   const [isTransitionScreenOpen, setIsTransitionScreenOpen] = useState<boolean>(false);
+  const [isSaveExitModalOpen, setIsSaveExitModalOpen] = useState<boolean>(false);
+  const [isSavedSuccess, setIsSavedSuccess] = useState<boolean>(false);
   const [breakTimeLeft, setBreakTimeLeft] = useState<number>(600); // 10:00 Break
 
   // Highlighting & Notes
@@ -328,7 +364,13 @@ export default function BluebookTestShell({
   // Per-Module Drift-Free Timer Engine
   const testStartTimeRef = useRef<number>(0);
   const moduleStartTimeRef = useRef<number>(0);
-  const [moduleTimeLeft, setModuleTimeLeft] = useState<number>(activeModule ? activeModule.durationSeconds : 0);
+  const accumulatedTimeRef = useRef<number>(initialTimeSpentSeconds || 0);
+  const [moduleTimeLeft, setModuleTimeLeft] = useState<number>(() => {
+    if (typeof initialModuleTimeLeft === 'number' && initialModuleTimeLeft > 0) {
+      return initialModuleTimeLeft;
+    }
+    return activeModule ? activeModule.durationSeconds : 0;
+  });
   const [moduleElapsedSeconds, setModuleElapsedSeconds] = useState<number>(0);
   const [isTimerHidden, setIsTimerHidden] = useState<boolean>(false);
 
@@ -358,13 +400,73 @@ export default function BluebookTestShell({
 
   // Handle final test completion
   const handleCompleteTest = useCallback(() => {
-    const elapsed = Math.floor((Date.now() - testStartTimeRef.current) / 1000);
+    const sessionElapsed = Math.floor((Date.now() - testStartTimeRef.current) / 1000);
+    const totalElapsed = accumulatedTimeRef.current + sessionElapsed;
     onFinishTestRef.current({
       answers: answersRef.current,
       markedForReview: markedForReviewRef.current,
-      timeSpentSeconds: elapsed,
+      timeSpentSeconds: totalElapsed,
     });
   }, []);
+
+  // Handle Save & Exit
+  const handleConfirmSaveAndExit = useCallback(() => {
+    const sessionElapsed = Math.floor((Date.now() - testStartTimeRef.current) / 1000);
+    const totalElapsed = accumulatedTimeRef.current + sessionElapsed;
+    const sessionId = savedSessionId || `session-${Date.now()}`;
+
+    const savedSession: SavedTestSession = {
+      id: sessionId,
+      title,
+      sectionName,
+      examType: examType || 'official_full',
+      createdAt: new Date().toISOString(),
+      lastSavedAt: new Date().toISOString(),
+      questions,
+      rawQuestions: rawQuestions || [],
+      answers: answersRef.current,
+      markedForReview: markedForReviewRef.current,
+      currentIndex,
+      currentModuleIdx,
+      timeSpentSeconds: totalElapsed,
+      moduleTimeLeft,
+      timerSeconds,
+      perQuestionTimerSeconds,
+      isUntimed,
+      isOfficialExam,
+      instantFeedback,
+      presetConfig,
+    };
+
+    saveTestSession(savedSession);
+    setIsSavedSuccess(true);
+
+    setTimeout(() => {
+      if (onSaveAndExit) {
+        onSaveAndExit(savedSession);
+      } else {
+        onClose();
+      }
+    }, 600);
+  }, [
+    savedSessionId,
+    title,
+    sectionName,
+    examType,
+    questions,
+    rawQuestions,
+    currentIndex,
+    currentModuleIdx,
+    moduleTimeLeft,
+    timerSeconds,
+    perQuestionTimerSeconds,
+    isUntimed,
+    isOfficialExam,
+    instantFeedback,
+    presetConfig,
+    onSaveAndExit,
+    onClose,
+  ]);
 
   // Initialize test and module start timers on mount
   useEffect(() => {
@@ -900,10 +1002,21 @@ export default function BluebookTestShell({
             <span className="hidden md:inline">Review</span>
           </button>
 
+          {/* Save & Exit Button */}
+          <button
+            type="button"
+            onClick={() => setIsSaveExitModalOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50/80 hover:bg-blue-100 text-blue-700 text-xs font-bold transition-all shadow-2xs cursor-pointer"
+            title="Save progress and exit test"
+          >
+            <Save className="w-3.5 h-3.5 text-blue-600" />
+            <span>Save & Exit</span>
+          </button>
+
           {/* Exit / Close */}
           <button
             type="button"
-            onClick={onClose}
+            onClick={() => setIsSaveExitModalOpen(true)}
             className="p-2 hover:bg-rose-50 hover:text-rose-600 rounded-lg text-slate-400 transition-colors cursor-pointer"
             title="Exit Exam"
           >
@@ -1826,6 +1939,101 @@ export default function BluebookTestShell({
                 </div>
               ))
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ================= SAVE & EXIT CONFIRMATION MODAL ================= */}
+      {isSaveExitModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-md w-full overflow-hidden animate-in zoom-in-95 duration-150">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-6 text-white text-center relative">
+              <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center mx-auto mb-3 shadow-inner">
+                <Save className="w-6 h-6 text-white" />
+              </div>
+              <h2 className="text-xl font-extrabold tracking-tight">Save & Exit Practice Test?</h2>
+              <p className="text-blue-100 text-xs mt-1">
+                You can pause your test now and resume it whenever you're ready.
+              </p>
+            </div>
+
+            {/* Test Status Summary */}
+            <div className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-2.5">
+                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 text-center">
+                  <p className="text-lg font-black text-slate-900 font-mono">
+                    {Object.values(answers).filter(Boolean).length} / {totalQuestions}
+                  </p>
+                  <p className="text-[11px] text-slate-500 font-medium">Questions Answered</p>
+                </div>
+                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 text-center">
+                  <p className="text-lg font-black text-blue-600 font-mono">
+                    {Object.values(markedForReview).filter(Boolean).length}
+                  </p>
+                  <p className="text-[11px] text-slate-500 font-medium">Marked for Review</p>
+                </div>
+              </div>
+
+              <div className="bg-blue-50/60 border border-blue-100 p-3.5 rounded-2xl text-xs text-blue-900 space-y-1">
+                <div className="flex items-center justify-between font-bold">
+                  <span>Current Module:</span>
+                  <span className="text-blue-700 font-mono">{activeModule ? activeModule.name : sectionName}</span>
+                </div>
+                {!isUntimed && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-blue-800">Module Time Remaining:</span>
+                    <span className="font-mono font-bold text-blue-900">
+                      {Math.floor(moduleTimeLeft / 60)}m {moduleTimeLeft % 60}s
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              <p className="text-xs text-slate-500 leading-relaxed text-center">
+                All your answers, marked questions, and time spent will be saved. You can resume this session anytime from the <strong>Practice History & Saved Tests</strong> tab.
+              </p>
+
+              {/* Action Buttons */}
+              <div className="space-y-2 pt-2">
+                <button
+                  type="button"
+                  onClick={handleConfirmSaveAndExit}
+                  disabled={isSavedSuccess}
+                  className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm shadow-md transition-all active:scale-98 flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  {isSavedSuccess ? (
+                    <>
+                      <CheckCircle2 className="w-4 h-4 text-emerald-300" />
+                      <span>Progress Saved! Exiting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4" />
+                      <span>Save & Exit Test</span>
+                    </>
+                  )}
+                </button>
+
+                <div className="flex items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setIsSaveExitModalOpen(false)}
+                    className="flex-1 py-2.5 px-3 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs transition-colors cursor-pointer"
+                  >
+                    Resume Testing
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="py-2.5 px-3 rounded-xl text-rose-600 hover:bg-rose-50 font-bold text-xs transition-colors cursor-pointer"
+                  >
+                    Discard & Exit
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}
