@@ -845,4 +845,71 @@ export function deleteSavedTestSession(id: string): SavedTestSession[] {
   }
 }
 
+// =========================================================================
+// PRACTICE HISTORY & SAVED SESSIONS EXPORT / IMPORT ENGINE
+// =========================================================================
+
+export interface HistoryBackupBundle {
+  version: number;
+  exportedAt: string;
+  history: PracticeHistoryItem[];
+  savedSessions: SavedTestSession[];
+}
+
+export function exportPracticeHistoryBundle(): HistoryBackupBundle {
+  return {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    history: getPracticeHistory(),
+    savedSessions: getSavedTestSessions(),
+  };
+}
+
+export function importPracticeHistoryBundle(jsonContent: string): { historyCount: number; savedSessionsCount: number } {
+  if (typeof window === 'undefined') return { historyCount: 0, savedSessionsCount: 0 };
+
+  try {
+    const data = JSON.parse(jsonContent);
+    let importedHistory: PracticeHistoryItem[] = [];
+    let importedSessions: SavedTestSession[] = [];
+
+    if (data && typeof data === 'object' && !Array.isArray(data)) {
+      if (Array.isArray(data.history)) {
+        importedHistory = data.history;
+      }
+      if (Array.isArray(data.savedSessions)) {
+        importedSessions = data.savedSessions;
+      }
+    } else if (Array.isArray(data)) {
+      for (const item of data) {
+        if (item && item.completedAt && item.title) {
+          importedHistory.push(item);
+        } else if (item && item.lastSavedAt && item.questions) {
+          importedSessions.push(item);
+        }
+      }
+    }
+
+    const currentHistory = getPracticeHistory();
+    const existingHistoryIds = new Set(currentHistory.map((h) => h.id));
+    const newHistoryItems = importedHistory.filter((h) => h && h.id && !existingHistoryIds.has(h.id));
+    const updatedHistory = [...newHistoryItems, ...currentHistory].slice(0, 100);
+    localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(updatedHistory));
+
+    const currentSessions = getSavedTestSessions();
+    const existingSessionIds = new Set(currentSessions.map((s) => s.id));
+    const newSessionItems = importedSessions.filter((s) => s && s.id && !existingSessionIds.has(s.id));
+    const updatedSessions = [...newSessionItems, ...currentSessions];
+    localStorage.setItem(SAVED_TESTS_STORAGE_KEY, JSON.stringify(updatedSessions));
+
+    return {
+      historyCount: newHistoryItems.length,
+      savedSessionsCount: newSessionItems.length,
+    };
+  } catch (err) {
+    console.error('Failed to import practice history bundle:', err);
+    throw new Error('Invalid JSON backup file for practice history.');
+  }
+}
+
 

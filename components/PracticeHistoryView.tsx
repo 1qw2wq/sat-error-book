@@ -25,9 +25,18 @@ import {
   ChevronUp,
   AlertCircle,
   HelpCircle,
+  Download,
+  Upload,
 } from 'lucide-react';
 import { PracticeHistoryItem, SavedTestSession, HistoryQuestionSummary, RawSATQuestion, SATErrorItem } from '@/types/sat';
-import { deletePracticeHistoryItem, clearPracticeHistory, deleteSavedTestSession, saveError } from '@/lib/db';
+import {
+  deletePracticeHistoryItem,
+  clearPracticeHistory,
+  deleteSavedTestSession,
+  saveError,
+  exportPracticeHistoryBundle,
+  importPracticeHistoryBundle,
+} from '@/lib/db';
 import { transformRawToErrorItem } from '@/lib/questionBank';
 import MathRenderer from './MathRenderer';
 import MarkdownRenderer from './MarkdownRenderer';
@@ -216,8 +225,9 @@ export default function PracticeHistoryView({
   // Add individual question to error book
   const handleAddQuestionToErrorBook = async (qSummary: HistoryQuestionSummary) => {
     try {
+      const fallbackId = typeof qSummary.questionId === 'number' ? qSummary.questionId : (qSummary.questionNo || 1) * 10000;
       const rawFallback: RawSATQuestion = {
-        question_id: typeof qSummary.questionId === 'number' ? qSummary.questionId : Date.now(),
+        question_id: fallbackId,
         question_no: qSummary.questionNo || 1,
         question_type: qSummary.choices && qSummary.choices.length > 0 ? 'Single Choice' : 'Fill-in-the-Blank / Free Response',
         difficulty: qSummary.difficulty || 6,
@@ -284,26 +294,113 @@ export default function PracticeHistoryView({
     }
   };
 
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const [importStatus, setImportStatus] = useState<string | null>(null);
+
+  // Handle Export History & Paused Tests
+  const handleExportHistory = () => {
+    try {
+      const bundle = exportPracticeHistoryBundle();
+      const jsonStr = JSON.stringify(bundle, null, 2);
+      const blob = new Blob([jsonStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const dateStr = new Date().toISOString().slice(0, 10);
+      link.href = url;
+      link.download = `sat_practice_history_backup_${dateStr}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Failed to export history bundle:', err);
+      alert('Failed to export practice history backup.');
+    }
+  };
+
+  // Handle Import History & Paused Tests
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const res = importPracticeHistoryBundle(text);
+      setImportStatus(`Successfully imported ${res.historyCount} completed tests and ${res.savedSessionsCount} saved paused sessions!`);
+      if (onRefreshData) onRefreshData();
+      setTimeout(() => setImportStatus(null), 6000);
+    } catch (err: any) {
+      console.error('Failed to import history:', err);
+      alert(err.message || 'Failed to import JSON backup file.');
+    } finally {
+      if (e.target) e.target.value = '';
+    }
+  };
+
   return (
     <div className="space-y-8 animate-in fade-in duration-300">
+      {/* Hidden File Input for Importing History */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileChange}
+        accept=".json"
+        className="hidden"
+      />
+
       {/* Top Banner / Metrics Overview */}
-      <div className="bg-gradient-to-br from-slate-900 via-indigo-950 to-blue-950 rounded-3xl p-6 sm:p-8 text-white shadow-xl border border-slate-800">
+      <div className="bg-gradient-to-br from-slate-900 via-indigo-950 to-blue-950 rounded-3xl p-6 sm:p-8 text-white shadow-xl border border-slate-800 space-y-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="space-y-2 max-w-xl">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/20 border border-indigo-400/30 text-indigo-300 text-xs font-bold uppercase tracking-wider">
-              <History className="w-3.5 h-3.5" />
-              <span>Practice History & Saved Tests</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/20 border border-indigo-400/30 text-indigo-300 text-xs font-bold uppercase tracking-wider">
+                <History className="w-3.5 h-3.5" />
+                <span>Practice History & Saved Tests</span>
+              </div>
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
               Your Complete SAT Practice Journey
             </h1>
             <p className="text-slate-300 text-xs sm:text-sm leading-relaxed">
-              Track your full exam scores, review question-by-question mistakes, resume saved practice tests in progress, and automatically synchronize missed questions to your SAT Error Book.
+              Track your full exam scores, review question-by-question mistakes, resume saved practice tests in progress, and export or import your practice history records anytime.
             </p>
           </div>
 
-          {/* Quick Metrics */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 shrink-0">
+            {/* Export JSON Button */}
+            <button
+              type="button"
+              onClick={handleExportHistory}
+              className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-white text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer shadow-xs active:scale-98"
+              title="Export practice history and paused tests to JSON"
+            >
+              <Download className="w-4 h-4 text-blue-400" />
+              <span>Export History JSON</span>
+            </button>
+
+            {/* Import JSON Button */}
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer shadow-xs active:scale-98"
+              title="Import practice history backup JSON file"
+            >
+              <Upload className="w-4 h-4 text-indigo-200" />
+              <span>Import History</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Import Status Alert Banner */}
+        {importStatus && (
+          <div className="p-3.5 rounded-2xl bg-emerald-500/20 border border-emerald-400/40 text-emerald-200 text-xs font-bold flex items-center gap-2.5 animate-in fade-in duration-200">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>{importStatus}</span>
+          </div>
+        )}
+
+        {/* Quick Metrics */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 border-t border-white/10">
             <div className="bg-white/10 backdrop-blur-md p-3.5 rounded-2xl border border-white/10 text-center">
               <p className="text-2xl sm:text-3xl font-black text-white font-mono">{metrics.totalTests}</p>
               <p className="text-xs text-slate-300 font-medium">Tests Completed</p>
@@ -326,7 +423,6 @@ export default function PracticeHistoryView({
             </div>
           </div>
         </div>
-      </div>
 
       {/* ========================================================================= */}
       {/* SECTION 1: IN-PROGRESS / PAUSED TESTS (SAVE & EXIT)                       */}

@@ -1335,16 +1335,8 @@ export default function BluebookTestShell({
                     </div>
                   </div>
 
-                  {/* Action Buttons: Retry, Error Book, Next */}
+                  {/* Action Buttons: Error Book */}
                   <div className="flex items-center gap-2 flex-wrap">
-                    <button
-                      type="button"
-                      onClick={() => handleRetryQuestion(currentIndex)}
-                      className="px-3.5 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 text-xs font-bold text-slate-700 transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
-                    >
-                      <span>Try Again</span>
-                    </button>
-
                     <button
                       type="button"
                       onClick={() => handleSaveToErrorBook(currentIndex)}
@@ -1360,17 +1352,6 @@ export default function BluebookTestShell({
                         {savedToErrorBook[currentIndex] ? 'Added to Error Book ✓' : '+ Add to Error Book'}
                       </span>
                     </button>
-
-                    {currentIndex < activeModule.endIndex && (
-                      <button
-                        type="button"
-                        onClick={() => setCurrentIndex((prev) => prev + 1)}
-                        className="px-4 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
-                      >
-                        <span>Next Question</span>
-                        <ArrowRight className="w-3.5 h-3.5" />
-                      </button>
-                    )}
                   </div>
                 </div>
 
@@ -1602,7 +1583,7 @@ export default function BluebookTestShell({
           )}
         </div>
 
-        {/* Right Navigation: Back & Next / Review Module */}
+        {/* Right Navigation: Back & Check Answer / Next / Review Module */}
         <div className="flex items-center gap-3">
           <button
             type="button"
@@ -1613,7 +1594,18 @@ export default function BluebookTestShell({
             Back
           </button>
 
-          {currentIndex < activeModule.endIndex ? (
+          {instantFeedback && !checkedQuestions[currentIndex] ? (
+            <button
+              type="button"
+              onClick={() => handleCheckAnswer(currentIndex)}
+              disabled={!answers[currentIndex]?.trim()}
+              title={!answers[currentIndex]?.trim() ? 'Please select or type an answer first' : 'Click to check answer'}
+              className="px-6 py-2.5 rounded-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs shadow-sm transition-transform active:scale-95 flex items-center gap-1.5 cursor-pointer"
+            >
+              <Sparkles className="w-4 h-4 text-indigo-200" />
+              <span>Check Answer</span>
+            </button>
+          ) : currentIndex < activeModule.endIndex ? (
             <button
               type="button"
               onClick={() => setCurrentIndex((prev) => Math.min(activeModule.endIndex, prev + 1))}
@@ -1954,7 +1946,7 @@ export default function BluebookTestShell({
               </div>
               <h2 className="text-xl font-extrabold tracking-tight">Save & Exit Practice Test?</h2>
               <p className="text-blue-100 text-xs mt-1">
-                You can pause your test now and resume it whenever you're ready.
+                You can pause your test now and resume it whenever you&apos;re ready.
               </p>
             </div>
 
