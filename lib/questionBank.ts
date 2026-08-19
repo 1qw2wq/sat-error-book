@@ -5,17 +5,110 @@ import { formatMathText, formatMathChoice } from '@/lib/mathFormatter';
 export type { BluebookQuestionItem };
 
 /**
+ * Splits text into grammatical sentences without falsely splitting on abbreviations or decimals.
+ */
+function splitEnglishSentences(text: string): string[] {
+  if (!text) return [];
+  const safe = text
+    .replace(/\b(e\.g\.|i\.e\.|etc\.|vs\.|al\.|Dr\.|Mr\.|Mrs\.|Ms\.|Prof\.)/gi, (m) => m.replace(/\./g, '@DOT@'))
+    .replace(/(\d)\.(\d)/g, '$1@DOT@$2');
+
+  const chunks = safe.split(/(?<=[.!?])\s+(?=[A-Z“"\[])/);
+  return chunks.map((c) => c.replace(/@DOT@/g, '.').trim()).filter(Boolean);
+}
+
+/**
+ * Automatically restores missing <u>...</u> tags for questions mentioning underlined portions/sentences.
+ */
+export function restoreUnderline(
+  questionText: string,
+  explanation?: string
+): string {
+  if (!questionText || /<u[\s>]|\\underline|<ins[\s>]/i.test(questionText)) {
+    return questionText;
+  }
+
+  // Only run if the question explicitly refers to an underlined element
+  if (!/underlined/i.test(questionText)) {
+    return questionText;
+  }
+
+  const explStr = explanation || '';
+
+  // 1. Direct quote extraction from explanation after 划线 / 画线
+  const matchPats = [
+    /[划画]线(?:短语|部分|句|词|句子|内容|文本)?[\s\S]{0,60}?[“"']([^“”"'\n]{3,180})[”"']/g,
+    /[“"']([a-zA-Z0-9\s,.'\-\–—;:!?()\[\]]{6,150})[”"']/g,
+  ];
+
+  for (const pat of matchPats) {
+    let m: RegExpExecArray | null;
+    while ((m = pat.exec(explStr)) !== null) {
+      const cand = m[1].trim();
+      if (cand && cand.length >= 4 && questionText.includes(cand)) {
+        const idx = questionText.indexOf(cand);
+        const promptIdx = questionText.toLowerCase().lastIndexOf('which choice');
+        if (promptIdx === -1 || idx < promptIdx) {
+          return questionText.replace(cand, `<u>${cand}</u>`);
+        }
+      }
+    }
+  }
+
+  // 2. Sentence-level heuristics when prompt specifically asks about sentence or portion
+  const promptIdx = questionText.toLowerCase().lastIndexOf('which choice');
+  const passage = (promptIdx > 20 ? questionText.substring(0, promptIdx) : questionText).trim();
+  const sentences = splitEnglishSentences(passage);
+
+  if (sentences.length > 0) {
+    // If explanation explicitly mentions transition / contrast or specific sentence keywords
+    if (
+      /[划画]线[\s\S]{0,30}?(?:然而|但是|不过|相反|却|第二句|第三句)/i.test(explStr) ||
+      /“然而”|“但是”/i.test(explStr)
+    ) {
+      const transSent = sentences.find((s) =>
+        /^(?:However|Yet|Nonetheless|Nevertheless|But|In contrast|On the other hand)\b/i.test(s)
+      );
+      if (transSent) {
+        return questionText.replace(transSent, `<u>${transSent}</u>`);
+      }
+    }
+
+    if (/[划画]线[\s\S]{0,30}?(?:第一句|首句|首先)/i.test(explStr)) {
+      return questionText.replace(sentences[0], `<u>${sentences[0]}</u>`);
+    }
+
+    const transSent = sentences.find((s) =>
+      /^(?:However|Yet|Nonetheless|Nevertheless|But|In contrast|On the other hand)\b/i.test(s)
+    );
+    if (transSent && /然而|但是|不过|转折/i.test(explStr)) {
+      return questionText.replace(transSent, `<u>${transSent}</u>`);
+    }
+
+    // Default to the last sentence of stimulus if prompt asks for "underlined sentence"
+    const lastSentence = sentences[sentences.length - 1];
+    if (lastSentence) {
+      return questionText.replace(lastSentence, `<u>${lastSentence}</u>`);
+    }
+  }
+
+  return questionText;
+}
+
+/**
  * Splits question text into passage (stimulus) and question prompt for SAT Reading & Writing.
  */
 export function splitPassageAndPrompt(
   questionText: string,
-  section?: string
+  section?: string,
+  explanation?: string
 ): { passageText?: string; questionPrompt: string } {
   if (!questionText) {
     return { questionPrompt: '' };
   }
 
-  const cleanText = questionText.trim();
+  const restoredText = restoreUnderline(questionText, explanation);
+  const cleanText = restoredText.trim();
 
   // If section is Math, format any math equations and return directly as prompt
   if (section === 'Math') {
@@ -121,7 +214,7 @@ export function transformRawToBluebookQuestion(
   index?: number
 ): BluebookQuestionItem {
   const isMath = raw.section === 'Math';
-  const { passageText, questionPrompt } = splitPassageAndPrompt(raw.question, raw.section);
+  const { passageText, questionPrompt } = splitPassageAndPrompt(raw.question, raw.section, raw.explanations);
 
   const isDummySelections =
     !raw.selections ||
@@ -196,7 +289,7 @@ export function transformRawToErrorItem(
   userNotes?: string
 ): SATErrorItem {
   const isMath = raw.section === 'Math';
-  const { passageText, questionPrompt } = splitPassageAndPrompt(raw.question, raw.section);
+  const { passageText, questionPrompt } = splitPassageAndPrompt(raw.question, raw.section, raw.explanations);
 
   const isDummySelections =
     !raw.selections ||

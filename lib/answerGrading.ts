@@ -7,7 +7,8 @@ export function cleanTextForComparison(str: string): string {
   if (!str) return '';
   return str
     .trim()
-    .replace(/\$/g, '') // remove LaTeX math $ delimiters
+    .replace(/\$/g, '') // remove LaTeX math $ delimiters or currency signs
+    .replace(/%/g, '') // remove percentage signs
     .replace(/\\text\{([^}]*)\}/g, '$1') // remove \text{...}
     .replace(/\\left|\\right/g, '') // remove LaTeX left/right
     .replace(/[{}\\]/g, '') // remove stray braces and slashes
@@ -16,15 +17,24 @@ export function cleanTextForComparison(str: string): string {
     .toLowerCase();
 }
 
+/**
+ * Parses numeric or fractional representations including LaTeX fractions,
+ * percentages, currency, positive signs, leading/trailing zeros.
+ */
 export function parseNumericOrFraction(input: string): number | null {
   if (!input) return null;
-  const clean = input
+  let clean = input
     .trim()
-    .replace(/\$/g, '')
+    .replace(/[\$,]/g, '')
+    .replace(/%/g, '')
     .replace(/\\frac\{([^}]+)\}\{([^}]+)\}/g, '$1/$2') // convert \frac{a}{b} to a/b
     .replace(/\s+/g, '');
 
-  // Handle fractions like "4/3", "-5/2", "1/2"
+  if (clean.startsWith('+')) {
+    clean = clean.substring(1);
+  }
+
+  // Handle fractions like "4/3", "-5/2", "1/2", "145/12"
   if (clean.includes('/')) {
     const parts = clean.split('/');
     if (parts.length === 2) {
@@ -36,9 +46,60 @@ export function parseNumericOrFraction(input: string): number | null {
     }
   }
 
-  // Handle standard decimals or integers e.g. "0.75", ".75", "-12"
+  // Handle standard decimals or integers e.g. "0.75", ".75", "-12.08"
   const val = parseFloat(clean);
   return isNaN(val) ? null : val;
+}
+
+/**
+ * Compares two numeric or fraction strings for exact value, float equivalence,
+ * and standard SAT repeating decimal rounding/truncation rules (e.g. 2/3 = 0.666 or 0.667).
+ */
+export function areNumericallyEquivalent(userStr: string, officialStr: string): boolean {
+  const u = parseNumericOrFraction(userStr);
+  const o = parseNumericOrFraction(officialStr);
+  if (u === null || o === null) return false;
+
+  // Float equivalence within high precision tolerance
+  if (Math.abs(u - o) < 0.0005) return true;
+
+  // Normalized string equality (e.g. "0.75" vs ".75", "+5" vs "5")
+  const uNorm = userStr.trim().replace(/^0\./, '.').replace(/^\+/, '');
+  const oNorm = officialStr.trim().replace(/^0\./, '.').replace(/^\+/, '');
+  if (uNorm === oNorm) return true;
+
+  // Repeating decimal checks (e.g. College Board allows 0.666 or 0.667 or .666 or .667 for 2/3)
+  const oVal = parseNumericOrFraction(officialStr);
+  if (oVal !== null) {
+    const truncated3 = Math.trunc(oVal * 1000) / 1000;
+    const rounded3 = Math.round(oVal * 1000) / 1000;
+    const truncated4 = Math.trunc(oVal * 10000) / 10000;
+    const rounded4 = Math.round(oVal * 10000) / 10000;
+    if (
+      Math.abs(u - truncated3) < 0.0001 ||
+      Math.abs(u - rounded3) < 0.0001 ||
+      Math.abs(u - truncated4) < 0.0001 ||
+      Math.abs(u - rounded4) < 0.0001
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Splits a composite official answer string (e.g. "0.25, .25, 1/4" or "12.08, 145/12" or "3/4 or .75")
+ * into distinct candidate accepted answers.
+ */
+export function splitOfficialAnswerCandidates(officialAns: string): string[] {
+  if (!officialAns) return [];
+  const candidates = officialAns
+    .split(/[,;|]|\s+or\s+|\s+OR\s+|，|、/i)
+    .map((c) => c.trim())
+    .filter(Boolean);
+
+  return candidates.length > 0 ? candidates : [officialAns.trim()];
 }
 
 export function gradeStudentResponse(
@@ -60,58 +121,56 @@ export function gradeStudentResponse(
     };
   }
 
-  // Exact string match (case insensitive, space trimmed)
-  if (userClean.toLowerCase() === correctClean.toLowerCase()) {
-    return {
-      isCorrect: true,
-      normalizedUser: userClean,
-      normalizedCorrect: correctClean,
-    };
-  }
+  // Get all acceptable candidate forms from the official answer
+  const candidates = splitOfficialAnswerCandidates(correctClean);
 
-  // Cleaned text match (ignoring markdown, latex, punctuation)
-  const cleanU = cleanTextForComparison(userClean);
-  const cleanC = cleanTextForComparison(correctClean);
-  if (cleanU.length > 0 && cleanU === cleanC) {
-    return {
-      isCorrect: true,
-      normalizedUser: userClean,
-      normalizedCorrect: correctClean,
-    };
-  }
-
-  // Single letter match e.g. "A" or "a" if correctAnswer is "A" or "A) ..."
-  const singleLetterU = userClean.match(/^[A-Da-d]$/);
-  const singleLetterC = correctClean.match(/^[A-Da-d]$/);
-  if (singleLetterU && singleLetterC) {
-    if (singleLetterU[0].toUpperCase() === singleLetterC[0].toUpperCase()) {
+  for (const cand of candidates) {
+    // 1. Exact string match (case-insensitive)
+    if (userClean.toLowerCase() === cand.toLowerCase()) {
       return {
         isCorrect: true,
-        normalizedUser: userClean.toUpperCase(),
-        normalizedCorrect: correctClean.toUpperCase(),
+        normalizedUser: userClean,
+        normalizedCorrect: correctClean,
       };
     }
-  }
 
-  // Letter with parenthesis / period prefix e.g. "A)" vs "A"
-  const prefixU = userClean.match(/^[A-Da-d][).:]?/);
-  const prefixC = correctClean.match(/^[A-Da-d][).:]?/);
-  if (prefixU && prefixC && prefixU[0][0].toUpperCase() === prefixC[0][0].toUpperCase()) {
-    return {
-      isCorrect: true,
-      normalizedUser: userClean,
-      normalizedCorrect: correctClean,
-    };
-  }
+    // 2. Cleaned text match (ignoring markdown, LaTeX, punctuation)
+    const cleanU = cleanTextForComparison(userClean);
+    const cleanC = cleanTextForComparison(cand);
+    if (cleanU.length > 0 && cleanU === cleanC) {
+      return {
+        isCorrect: true,
+        normalizedUser: userClean,
+        normalizedCorrect: correctClean,
+      };
+    }
 
-  // Numeric or fraction evaluation
-  const userNum = parseNumericOrFraction(userClean);
-  const correctNum = parseNumericOrFraction(correctClean);
+    // 3. Single letter match e.g. "A" or "a" if candidate is "A" or "A) ..."
+    const singleLetterU = userClean.match(/^[A-Da-d]$/);
+    const singleLetterC = cand.match(/^[A-Da-d]$/);
+    if (singleLetterU && singleLetterC) {
+      if (singleLetterU[0].toUpperCase() === singleLetterC[0].toUpperCase()) {
+        return {
+          isCorrect: true,
+          normalizedUser: userClean.toUpperCase(),
+          normalizedCorrect: correctClean.toUpperCase(),
+        };
+      }
+    }
 
-  if (userNum !== null && correctNum !== null) {
-    // Check if close enough within 0.0001 precision or 4 decimal places
-    const diff = Math.abs(userNum - correctNum);
-    if (diff < 0.0001) {
+    // 4. Letter with parenthesis/colon prefix e.g. "A)" vs "A"
+    const prefixU = userClean.match(/^[A-Da-d][).:]?/);
+    const prefixC = cand.match(/^[A-Da-d][).:]?/);
+    if (prefixU && prefixC && prefixU[0][0].toUpperCase() === prefixC[0][0].toUpperCase()) {
+      return {
+        isCorrect: true,
+        normalizedUser: userClean,
+        normalizedCorrect: correctClean,
+      };
+    }
+
+    // 5. Numerical / Fraction / Decimal equivalence check
+    if (areNumericallyEquivalent(userClean, cand)) {
       return {
         isCorrect: true,
         normalizedUser: userClean,

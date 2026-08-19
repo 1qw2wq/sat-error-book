@@ -143,25 +143,51 @@ function renderFormattedProseLeaves(
   highlights?: HighlightItem[],
   onHighlightClick?: (highlight: HighlightItem, e: React.MouseEvent) => void
 ) {
-  // Support HTML underline <u>...</u>, <b>...</b>, and Markdown **...** / *...* formatting in prose
-  const formatTagRegex = /(<u>[\s\S]*?<\/u>|<b>[\s\S]*?<\/b>|\*\*[\s\S]*?\*\*|\*[^\*]+?\*|_[^_]+?_)/gi;
+  // Support HTML underline <u...>, <ins...>, \underline{...}, <b>...</b>, <strong>...</strong>, and Markdown **...** / *...* formatting in prose
+  const formatTagRegex = /(<u[^>]*>[\s\S]*?<\/u>|<ins[^>]*>[\s\S]*?<\/ins>|\\underline\{[^\}]*\}|<strong[^>]*>[\s\S]*?<\/strong>|<b[^>]*>[\s\S]*?<\/b>|\*\*[\s\S]*?\*\*|\*[^\*]+?\*|_[^_]+?_|_____+\b)/gi;
   const tagParts = prose.split(formatTagRegex);
 
   if (tagParts.length > 1) {
     return tagParts.map((tagPart, tIdx) => {
       if (!tagPart) return null;
 
-      if (/^<u>[\s\S]*?<\/u>$/i.test(tagPart)) {
-        const inner = tagPart.replace(/^<u>/i, '').replace(/<\/u>$/i, '');
+      if (/^<u[^>]*>[\s\S]*?<\/u>$/i.test(tagPart) || /^<ins[^>]*>[\s\S]*?<\/ins>$/i.test(tagPart)) {
+        const inner = tagPart.replace(/^<(?:u|ins)[^>]*>/i, '').replace(/<\/(?:u|ins)>$/i, '');
         return (
-          <span key={`u-${baseKey}-${tIdx}`} className="underline decoration-2 underline-offset-4 font-normal inline">
+          <span
+            key={`u-${baseKey}-${tIdx}`}
+            className="underline decoration-2 underline-offset-4 decoration-blue-600 dark:decoration-blue-400 font-semibold text-inherit inline"
+          >
             {renderFormattedProseLeaves(inner, baseKey * 100 + tIdx, highlights, onHighlightClick)}
           </span>
         );
       }
 
-      if (/^<b>[\s\S]*?<\/b>$/i.test(tagPart)) {
-        const inner = tagPart.replace(/^<b>/i, '').replace(/<\/b>$/i, '');
+      if (/^\\underline\{[^\}]*\}$/i.test(tagPart)) {
+        const inner = tagPart.replace(/^\\underline\{/, '').replace(/\}$/, '');
+        return (
+          <span
+            key={`u-latex-${baseKey}-${tIdx}`}
+            className="underline decoration-2 underline-offset-4 decoration-blue-600 dark:decoration-blue-400 font-semibold text-inherit inline"
+          >
+            {renderFormattedProseLeaves(inner, baseKey * 100 + tIdx, highlights, onHighlightClick)}
+          </span>
+        );
+      }
+
+      if (/^_____+\b/.test(tagPart)) {
+        return (
+          <span
+            key={`blank-${baseKey}-${tIdx}`}
+            className="inline-block border-b-2 border-slate-700 dark:border-slate-300 min-w-12 mx-1 px-1 text-center font-mono font-medium text-inherit"
+          >
+            &nbsp;&nbsp;&nbsp;&nbsp;
+          </span>
+        );
+      }
+
+      if (/^<b[^>]*>[\s\S]*?<\/b>$/i.test(tagPart) || /^<strong[^>]*>[\s\S]*?<\/strong>$/i.test(tagPart)) {
+        const inner = tagPart.replace(/^<(?:b|strong)[^>]*>/i, '').replace(/<\/(?:b|strong)>$/i, '');
         return (
           <strong key={`b-${baseKey}-${tIdx}`} className="font-extrabold text-inherit inline">
             {renderFormattedProseLeaves(inner, baseKey * 100 + tIdx, highlights, onHighlightClick)}
@@ -343,8 +369,24 @@ export function convertMathmlToLatex(mathml: string): string {
       return `\\begin{matrix} ${latexRows} \\end{matrix}`;
     });
 
-    // Recursively parse mfrac
+    // Parse mroot BEFORE child tags like msup/msub so root index is not stripped
     let prev = '';
+    while (res !== prev) {
+      prev = res;
+      res = res.replace(/<mroot[^>]*>([\s\S]*?)<\/mroot>/gi, (_, inner) => {
+        const parts = splitMathmlNodes(inner);
+        if (parts.length >= 2) {
+          return `\\sqrt[${parseNodes(parts[1])}]{${parseNodes(parts[0])}}`;
+        }
+        return `\\sqrt{${parseNodes(inner)}}`;
+      });
+    }
+
+    // Parse msqrt
+    res = res.replace(/<msqrt[^>]*>([\s\S]*?)<\/msqrt>/gi, (_, inner) => `\\sqrt{${parseNodes(inner)}}`);
+
+    // Recursively parse mfrac
+    prev = '';
     while (res !== prev) {
       prev = res;
       res = res.replace(/<mfrac[^>]*>([\s\S]*?)<\/mfrac>/gi, (_, inner) => {
@@ -394,18 +436,6 @@ export function convertMathmlToLatex(mathml: string): string {
         return inner;
       });
     }
-
-    // Parse msqrt
-    res = res.replace(/<msqrt[^>]*>([\s\S]*?)<\/msqrt>/gi, (_, inner) => `\\sqrt{${parseNodes(inner)}}`);
-
-    // Parse mroot
-    res = res.replace(/<mroot[^>]*>([\s\S]*?)<\/mroot>/gi, (_, inner) => {
-      const parts = splitMathmlNodes(inner);
-      if (parts.length >= 2) {
-        return `\\sqrt[${parseNodes(parts[1])}]{${parseNodes(parts[0])}}`;
-      }
-      return `\\sqrt{${parseNodes(inner)}}`;
-    });
 
     // Parse mfenced
     res = res.replace(/<mfenced[^>]*>([\s\S]*?)<\/mfenced>/gi, (_, inner) => `\\left(${parseNodes(inner)}\\right)`);
@@ -690,6 +720,8 @@ export default function MathRenderer({ text, className = '', highlights, onHighl
   // Render a math string using KaTeX safely
   const renderKatex = (latex: string, isBlock = false, key: number) => {
     let cleanLatex = latex.trim();
+    // Ensure percentage signs are properly escaped as \% so KaTeX does not treat them as LaTeX comments
+    cleanLatex = cleanLatex.replace(/(?<!\\)%/g, '\\%');
     // Convert common plain-text fraction patterns like (4/3) -> \frac{4}{3} if not already LaTeX
     if (!cleanLatex.includes('\\frac') && /\b\d+\/\d+\b/.test(cleanLatex)) {
       cleanLatex = cleanLatex.replace(/\b(\d+)\/(\d+)\b/g, '\\frac{$1}{$2}');
