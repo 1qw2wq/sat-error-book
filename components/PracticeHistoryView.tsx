@@ -16,6 +16,7 @@ import {
   Bookmark,
   ChevronRight,
   ArrowRight,
+  ArrowLeft,
   RefreshCw,
   PlusCircle,
   Eye,
@@ -66,7 +67,8 @@ export default function PracticeHistoryView({
 
   // Question review modal state
   const [selectedReviewItem, setSelectedReviewItem] = useState<PracticeHistoryItem | null>(null);
-  const [expandedQuestionIdx, setExpandedQuestionIdx] = useState<number | null>(null);
+  const [expandedQuestions, setExpandedQuestions] = useState<Record<number, boolean>>({});
+  const [reviewFilter, setReviewFilter] = useState<'all' | 'missed' | 'correct'>('all');
   const [addedErrors, setAddedErrors] = useState<Record<string | number, boolean>>({});
   const [savingAllMissed, setSavingAllMissed] = useState<boolean>(false);
   const [savedAllSuccess, setSavedAllSuccess] = useState<boolean>(false);
@@ -723,7 +725,13 @@ export default function PracticeHistoryView({
                           type="button"
                           onClick={() => {
                             setSelectedReviewItem(item);
-                            setExpandedQuestionIdx(null);
+                            // Default all questions to expanded for full visibility
+                            const initialExp: Record<number, boolean> = {};
+                            item.questionSummaries?.forEach((_, idx) => {
+                              initialExp[idx] = true;
+                            });
+                            setExpandedQuestions(initialExp);
+                            setReviewFilter('all');
                             setSavedAllSuccess(false);
                           }}
                           className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold transition-colors cursor-pointer"
@@ -765,184 +773,298 @@ export default function PracticeHistoryView({
       </div>
 
       {/* ========================================================================= */}
-      {/* MODAL: DETAILED QUESTION-BY-QUESTION TEST REVIEW                          */}
+      {/* FULL WINDOW: DETAILED QUESTION-BY-QUESTION TEST REVIEW & ANSWER DISPLAY    */}
       {/* ========================================================================= */}
       {selectedReviewItem && (
-        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-150">
-            {/* Header */}
-            <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-800/60">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300">
-                    Test Review
-                  </span>
-                  <span className="text-xs text-slate-500 font-mono">
-                    {formatDate(selectedReviewItem.completedAt)}
-                  </span>
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex flex-col w-screen h-screen max-w-none max-h-none overflow-hidden animate-in fade-in duration-150">
+          <div className="bg-slate-50 dark:bg-slate-950 flex-1 flex flex-col w-full h-full overflow-hidden">
+            {/* Top Navigation & Title Bar */}
+            <div className="h-16 px-6 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between shrink-0 shadow-xs">
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setSelectedReviewItem(null)}
+                  className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors cursor-pointer flex items-center gap-1.5 text-xs font-bold"
+                  title="Return to History"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                  <span className="hidden sm:inline">Back</span>
+                </button>
+                <div className="h-5 w-px bg-slate-200 dark:bg-slate-700 hidden sm:block" />
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 uppercase tracking-wider">
+                      Full Window Test Review
+                    </span>
+                    <span className="text-xs text-slate-500 font-mono hidden md:inline">
+                      {formatDate(selectedReviewItem.completedAt)}
+                    </span>
+                  </div>
+                  <h2 className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-white truncate max-w-md sm:max-w-xl">
+                    {selectedReviewItem.title}
+                  </h2>
                 </div>
-                <h2 className="text-lg sm:text-xl font-extrabold text-slate-900 dark:text-white">
-                  {selectedReviewItem.title}
-                </h2>
               </div>
 
-              <button
-                type="button"
-                onClick={() => setSelectedReviewItem(null)}
-                className="p-2 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 transition-colors cursor-pointer"
-              >
-                ✕
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleSaveAllMissedFromReview}
+                  disabled={savingAllMissed || savedAllSuccess}
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition-all shadow-xs disabled:opacity-70 cursor-pointer"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>{savedAllSuccess ? 'Missed Saved ✓' : savingAllMissed ? 'Saving...' : 'Save Missed to Error Book'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedReviewItem(null)}
+                  className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors cursor-pointer"
+                  title="Close Review"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
 
-            {/* Score Banner & Action Bar */}
-            <div className="p-4 bg-blue-50/50 dark:bg-blue-950/30 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+            {/* Score & Filter Sub-Header */}
+            <div className="px-6 py-3 bg-white/80 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs shrink-0">
               <div className="flex items-center gap-4 font-mono">
-                <span>Score: <strong className="text-blue-600 dark:text-blue-400">{selectedReviewItem.score} / {selectedReviewItem.questionCount}</strong></span>
-                <span>Accuracy: <strong>{selectedReviewItem.percentage}%</strong></span>
+                <span>Score: <strong className="text-blue-600 dark:text-blue-400 font-black text-sm">{selectedReviewItem.score} / {selectedReviewItem.questionCount}</strong></span>
+                <span>Accuracy: <strong className="font-bold">{selectedReviewItem.percentage}%</strong></span>
                 <span>Time Spent: <strong>{formatDuration(selectedReviewItem.timeSpentSeconds)}</strong></span>
               </div>
 
-              <button
-                type="button"
-                onClick={handleSaveAllMissedFromReview}
-                disabled={savingAllMissed || savedAllSuccess}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold transition-all shadow-xs disabled:opacity-70 cursor-pointer"
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>{savedAllSuccess ? 'Missed Questions Saved!' : savingAllMissed ? 'Saving...' : 'Save Missed to Error Book'}</span>
-              </button>
-            </div>
-
-            {/* Questions List */}
-            <div className="p-6 overflow-y-auto space-y-4 flex-1">
-              {selectedReviewItem.questionSummaries?.map((q, qIdx) => {
-                const isExpanded = expandedQuestionIdx === qIdx;
-                const isAdded = addedErrors[q.questionId];
-
-                return (
-                  <div
-                    key={q.questionId || qIdx}
-                    className={`rounded-2xl border transition-all ${
-                      q.isCorrect
-                        ? 'border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/30 dark:bg-emerald-950/20'
-                        : 'border-rose-200 dark:border-rose-900/60 bg-rose-50/30 dark:bg-rose-950/20'
+              {/* Filter Tabs & Expand All Toggle */}
+              <div className="flex items-center gap-2">
+                <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-0.5 rounded-xl text-xs font-bold">
+                  <button
+                    type="button"
+                    onClick={() => setReviewFilter('all')}
+                    className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
+                      reviewFilter === 'all'
+                        ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
                     }`}
                   >
-                    {/* Header Row */}
-                    <div
-                      onClick={() => setExpandedQuestionIdx(isExpanded ? null : qIdx)}
-                      className="p-4 flex items-center justify-between gap-3 cursor-pointer hover:bg-slate-500/5 transition-colors select-none"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div
-                          className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs ${
-                            q.isCorrect
-                              ? 'bg-emerald-500 text-white'
-                              : 'bg-rose-500 text-white'
-                          }`}
-                        >
-                          {q.isCorrect ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
-                        </div>
-                        <div>
-                          <p className="text-xs font-bold text-slate-900 dark:text-white">
-                            Question #{q.questionNo || qIdx + 1}
-                            {q.subTopic && <span className="ml-2 font-normal text-slate-500 font-sans">• {q.subTopic}</span>}
-                          </p>
-                          <p className="text-[11px] text-slate-500 font-mono">
-                            Your Answer: <strong className={q.isCorrect ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}>{q.userAnswer || '(Omitted)'}</strong>
-                            {' • '}Correct Answer: <strong className="text-emerald-700 dark:text-emerald-400">{q.correctAnswer}</strong>
-                          </p>
-                        </div>
-                      </div>
+                    All ({selectedReviewItem.questionSummaries?.length || 0})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setReviewFilter('missed')}
+                    className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
+                      reviewFilter === 'missed'
+                        ? 'bg-rose-500 text-white shadow-xs'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-rose-600'
+                    }`}
+                  >
+                    Missed ({selectedReviewItem.questionSummaries?.filter((q) => !q.isCorrect).length || 0})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setReviewFilter('correct')}
+                    className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
+                      reviewFilter === 'correct'
+                        ? 'bg-emerald-600 text-white shadow-xs'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-emerald-600'
+                    }`}
+                  >
+                    Correct ({selectedReviewItem.questionSummaries?.filter((q) => q.isCorrect).length || 0})
+                  </button>
+                </div>
 
-                      <div className="flex items-center gap-2">
-                        {!q.isCorrect && (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleAddQuestionToErrorBook(q);
-                            }}
-                            disabled={isAdded}
-                            className="px-2.5 py-1 rounded-lg text-xs font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 disabled:opacity-60 transition-colors"
-                          >
-                            {isAdded ? '✓ In Error Book' : '+ Add to Error Book'}
-                          </button>
-                        )}
-                        {isExpanded ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
-                      </div>
-                    </div>
-
-                    {/* Expanded Detail */}
-                    {isExpanded && (
-                      <div className="p-4 pt-0 border-t border-slate-200/60 dark:border-slate-800 space-y-3 text-xs leading-relaxed">
-                        {q.passageText && (
-                          <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 font-serif text-slate-800 dark:text-slate-200">
-                            <MathRenderer text={q.passageText} />
-                          </div>
-                        )}
-
-                        <div className="font-medium text-slate-900 dark:text-slate-100">
-                          <MathRenderer text={q.questionPrompt} />
-                        </div>
-
-                        {/* Choices */}
-                        {q.choices && q.choices.length > 0 && (
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-                            {q.choices.map((c, cIdx) => {
-                              const label = String.fromCharCode(65 + cIdx);
-                              const isSelected = q.userAnswer === label;
-                              const isCorrectChoice = q.correctAnswer === label;
-
-                              return (
-                                <div
-                                  key={label}
-                                  className={`p-2.5 rounded-xl border text-xs flex items-center gap-2 ${
-                                    isCorrectChoice
-                                      ? 'bg-emerald-100/60 dark:bg-emerald-950/60 border-emerald-400 text-emerald-900 dark:text-emerald-200 font-bold'
-                                      : isSelected
-                                      ? 'bg-rose-100/60 dark:bg-rose-950/60 border-rose-400 text-rose-900 dark:text-rose-200 font-bold'
-                                      : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'
-                                  }`}
-                                >
-                                  <span className="w-5 h-5 rounded bg-slate-100 dark:bg-slate-800 flex items-center justify-center font-bold text-[10px]">
-                                    {label}
-                                  </span>
-                                  <span className="flex-1">
-                                    <MathRenderer text={c} />
-                                  </span>
-                                  {isCorrectChoice && <span className="text-[10px] text-emerald-600 font-extrabold uppercase">(Correct)</span>}
-                                  {isSelected && !isCorrectChoice && <span className="text-[10px] text-rose-600 font-extrabold uppercase">(Your Answer)</span>}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-
-                        {/* Explanation */}
-                        {q.explanation && (
-                          <div className="p-3.5 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200">
-                            <p className="font-bold text-slate-900 dark:text-white mb-1">Official Explanation:</p>
-                            <MarkdownRenderer content={q.explanation} />
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const allExp = Object.values(expandedQuestions).every(Boolean);
+                    const newExp: Record<number, boolean> = {};
+                    selectedReviewItem.questionSummaries?.forEach((_, idx) => {
+                      newExp[idx] = !allExp;
+                    });
+                    setExpandedQuestions(newExp);
+                  }}
+                  className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold hover:bg-slate-50 transition-colors cursor-pointer text-xs"
+                >
+                  {Object.values(expandedQuestions).every(Boolean) ? 'Collapse All' : 'Expand All'}
+                </button>
+              </div>
             </div>
 
-            {/* Footer */}
-            <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 flex justify-end">
-              <button
-                type="button"
-                onClick={() => setSelectedReviewItem(null)}
-                className="px-5 py-2 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-xs font-bold shadow-xs cursor-pointer"
-              >
-                Close Review
-              </button>
+            {/* Questions Stream */}
+            <div className="p-6 md:p-8 overflow-y-auto flex-1 space-y-6 max-w-5xl mx-auto w-full">
+              {selectedReviewItem.questionSummaries
+                ?.filter((q) => {
+                  if (reviewFilter === 'missed') return !q.isCorrect;
+                  if (reviewFilter === 'correct') return q.isCorrect;
+                  return true;
+                })
+                .map((q, qIdx) => {
+                  const isExpanded = expandedQuestions[qIdx] ?? true;
+                  const isAdded = addedErrors[q.questionId];
+
+                  return (
+                    <div
+                      key={q.questionId || qIdx}
+                      className={`rounded-3xl border-2 shadow-xs transition-all bg-white dark:bg-slate-900 overflow-hidden ${
+                        q.isCorrect
+                          ? 'border-emerald-200 dark:border-emerald-900/60'
+                          : 'border-rose-200 dark:border-rose-900/60'
+                      }`}
+                    >
+                      {/* Header Row */}
+                      <div
+                        onClick={() =>
+                          setExpandedQuestions((prev) => ({
+                            ...prev,
+                            [qIdx]: !isExpanded,
+                          }))
+                        }
+                        className={`p-4 sm:p-5 flex items-center justify-between gap-3 cursor-pointer select-none transition-colors ${
+                          q.isCorrect
+                            ? 'bg-emerald-50/50 dark:bg-emerald-950/20 hover:bg-emerald-50'
+                            : 'bg-rose-50/50 dark:bg-rose-950/20 hover:bg-rose-50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div
+                            className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs ${
+                              q.isCorrect ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'
+                            }`}
+                          >
+                            {q.isCorrect ? <CheckCircle2 className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
+                          </div>
+                          <div>
+                            <p className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-2">
+                              <span>Question #{q.questionNo || qIdx + 1}</span>
+                              {q.subTopic && (
+                                <span className="font-medium text-xs text-slate-500 font-sans">• {q.subTopic}</span>
+                              )}
+                            </p>
+                            <div className="text-xs text-slate-600 dark:text-slate-400 font-mono mt-0.5 flex items-center gap-3 flex-wrap">
+                              <span>
+                                Your Answer:{' '}
+                                <strong
+                                  className={`px-1.5 py-0.5 rounded ${
+                                    q.isCorrect
+                                      ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300'
+                                      : 'bg-rose-100 dark:bg-rose-950 text-rose-800 dark:text-rose-300'
+                                  }`}
+                                >
+                                  {q.userAnswer || '(Omitted)'}
+                                </strong>
+                              </span>
+                              <span>
+                                Correct Answer:{' '}
+                                <strong className="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 font-bold">
+                                  {q.correctAnswer}
+                                </strong>
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          {!q.isCorrect && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleAddQuestionToErrorBook(q);
+                              }}
+                              disabled={isAdded}
+                              className="px-3 py-1.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 hover:bg-slate-100 disabled:opacity-60 transition-colors shadow-2xs"
+                            >
+                              {isAdded ? '✓ In Error Book' : '+ Add to Error Book'}
+                            </button>
+                          )}
+                          {isExpanded ? (
+                            <ChevronUp className="w-5 h-5 text-slate-400" />
+                          ) : (
+                            <ChevronDown className="w-5 h-5 text-slate-400" />
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Expanded Question Details & Answers */}
+                      {isExpanded && (
+                        <div className="p-5 sm:p-6 border-t border-slate-200 dark:border-slate-800 space-y-4 text-sm leading-relaxed">
+                          {q.passageText && (
+                            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 font-serif text-slate-900 dark:text-slate-100 text-sm leading-relaxed">
+                              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1 font-sans">
+                                Passage / Stimulus:
+                              </p>
+                              <MathRenderer text={q.passageText} />
+                            </div>
+                          )}
+
+                          <div className="font-semibold text-slate-900 dark:text-slate-100 text-sm md:text-base">
+                            <MathRenderer text={q.questionPrompt} />
+                          </div>
+
+                          {/* Choices & Highlighting */}
+                          {q.choices && q.choices.length > 0 && (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                              {q.choices.map((c, cIdx) => {
+                                const label = String.fromCharCode(65 + cIdx);
+                                const isSelected = q.userAnswer === label;
+                                const isCorrectChoice = q.correctAnswer === label;
+
+                                return (
+                                  <div
+                                    key={label}
+                                    className={`p-3 rounded-2xl border text-xs sm:text-sm flex items-start gap-2.5 transition-all ${
+                                      isCorrectChoice
+                                        ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-500 text-emerald-950 dark:text-emerald-100 font-bold ring-2 ring-emerald-300'
+                                        : isSelected
+                                        ? 'bg-rose-50 dark:bg-rose-950/60 border-rose-400 text-rose-950 dark:text-rose-100 font-bold'
+                                        : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'
+                                    }`}
+                                  >
+                                    <span
+                                      className={`w-6 h-6 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 ${
+                                        isCorrectChoice
+                                          ? 'bg-emerald-600 text-white'
+                                          : isSelected
+                                          ? 'bg-rose-600 text-white'
+                                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                                      }`}
+                                    >
+                                      {label}
+                                    </span>
+                                    <div className="flex-1 pt-0.5">
+                                      <MathRenderer text={c} />
+                                    </div>
+                                    {isCorrectChoice && (
+                                      <span className="text-[10px] text-emerald-700 dark:text-emerald-300 font-extrabold uppercase bg-emerald-100 dark:bg-emerald-950 px-2 py-0.5 rounded shrink-0">
+                                        Correct
+                                      </span>
+                                    )}
+                                    {isSelected && !isCorrectChoice && (
+                                      <span className="text-[10px] text-rose-700 dark:text-rose-300 font-extrabold uppercase bg-rose-100 dark:bg-rose-950 px-2 py-0.5 rounded shrink-0">
+                                        Your Choice
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+
+                          {/* Explanation */}
+                          {q.explanation && (
+                            <div className="p-4 sm:p-5 rounded-2xl bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-200/80 dark:border-indigo-900/60 text-slate-800 dark:text-slate-200">
+                              <p className="font-extrabold text-indigo-950 dark:text-indigo-200 mb-1.5 flex items-center gap-1.5 text-xs uppercase tracking-wider">
+                                <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                                <span>Official Step-by-Step Explanation:</span>
+                              </p>
+                              <MarkdownRenderer content={q.explanation} />
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
             </div>
           </div>
         </div>

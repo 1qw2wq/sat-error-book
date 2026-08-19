@@ -365,6 +365,11 @@ export default function BluebookTestShell({
   const testStartTimeRef = useRef<number>(0);
   const moduleStartTimeRef = useRef<number>(0);
   const accumulatedTimeRef = useRef<number>(initialTimeSpentSeconds || 0);
+  const initialRemainingSecondsRef = useRef<number>(
+    typeof initialModuleTimeLeft === 'number' && initialModuleTimeLeft > 0
+      ? initialModuleTimeLeft
+      : (activeModule ? activeModule.durationSeconds : 0)
+  );
   const [moduleTimeLeft, setModuleTimeLeft] = useState<number>(() => {
     if (typeof initialModuleTimeLeft === 'number' && initialModuleTimeLeft > 0) {
       return initialModuleTimeLeft;
@@ -373,6 +378,35 @@ export default function BluebookTestShell({
   });
   const [moduleElapsedSeconds, setModuleElapsedSeconds] = useState<number>(0);
   const [isTimerHidden, setIsTimerHidden] = useState<boolean>(false);
+
+  // Resizable Desmos Calculator State
+  const [calculatorWidth, setCalculatorWidth] = useState<number>(460);
+  const isDraggingCalcRef = useRef<boolean>(false);
+  const startCalcXRef = useRef<number>(0);
+  const startCalcWidthRef = useRef<number>(460);
+
+  const handleCalcResizeMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    isDraggingCalcRef.current = true;
+    startCalcXRef.current = e.clientX;
+    startCalcWidthRef.current = calculatorWidth;
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      if (!isDraggingCalcRef.current) return;
+      const deltaX = startCalcXRef.current - moveEvent.clientX;
+      const newWidth = Math.max(340, Math.min(760, startCalcWidthRef.current + deltaX));
+      setCalculatorWidth(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      isDraggingCalcRef.current = false;
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  };
 
   // Per-Question Speed Timer Engine
   const questionStartTimeRef = useRef<number>(0);
@@ -486,6 +520,7 @@ export default function BluebookTestShell({
       setCurrentModuleIdx(nextIdx);
       setCurrentIndex(nextMod.startIndex);
       moduleStartTimeRef.current = Date.now();
+      initialRemainingSecondsRef.current = nextMod.durationSeconds;
       setModuleTimeLeft(nextMod.durationSeconds);
       setIsBreakScreenOpen(false);
       setIsTransitionScreenOpen(false);
@@ -528,7 +563,7 @@ export default function BluebookTestShell({
       setModuleElapsedSeconds(elapsedInMod);
 
       if (activeModule.durationSeconds > 0) {
-        const remaining = Math.max(0, Math.ceil(activeModule.durationSeconds - (now - moduleStartTimeRef.current) / 1000));
+        const remaining = Math.max(0, Math.ceil(initialRemainingSecondsRef.current - elapsedInMod));
         setModuleTimeLeft(remaining);
 
         // When module time expires:
@@ -1043,11 +1078,14 @@ export default function BluebookTestShell({
         </div>
       )}
 
-      {/* ================= BLUEBOOK QUESTION VIEWPORT ================= */}
-      {(() => {
-        const hasPassage = Boolean(currentQ.passageText && currentQ.passageText.trim().length > 0);
+      {/* ================= WORKSPACE CONTAINER (QUESTION STAGE + DOCKED CALCULATOR) ================= */}
+      <div className="flex-1 flex overflow-hidden relative">
+        {/* Main Question & Passage Work Area */}
+        <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+          {(() => {
+            const hasPassage = Boolean(currentQ.passageText && currentQ.passageText.trim().length > 0);
 
-        const questionStemJsx = (
+            const questionStemJsx = (
           <div className="space-y-6 animate-in fade-in duration-150">
             {/* Top Question Header with Question Number, Subtopic, & Bookmark */}
             <div className="flex items-center justify-between pb-3 border-b border-slate-200">
@@ -1277,26 +1315,6 @@ export default function BluebookTestShell({
               </div>
             )}
 
-            {/* PRACTICE & LEARN MODE: CHECK ANSWER BUTTON */}
-            {instantFeedback && !isChecked && (
-              <div className="pt-5 flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => handleCheckAnswer(currentIndex)}
-                  disabled={!currentAnswer.trim()}
-                  className="px-6 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-sm font-black shadow-md flex items-center gap-2 cursor-pointer disabled:cursor-not-allowed transition-all active:scale-95"
-                >
-                  <Sparkles className="w-4 h-4" />
-                  <span>Check Answer</span>
-                </button>
-                <span className="text-xs text-slate-500">
-                  {!currentAnswer.trim()
-                    ? 'Select or type an answer to check'
-                    : 'Click to verify and view full step-by-step solution'}
-                </span>
-              </div>
-            )}
-
             {/* PRACTICE & LEARN MODE: COMPREHENSIVE INSTANT EXPLANATION CARD */}
             {instantFeedback && isChecked && (
               <div
@@ -1378,45 +1396,90 @@ export default function BluebookTestShell({
         if (hasPassage) {
           return (
             <div className="flex-1 flex flex-col md:flex-row overflow-hidden divide-y md:divide-y-0 md:divide-x divide-slate-200">
-              {/* LEFT PANE: READING PASSAGE / STIMULUS */}
-              {!isLeftCollapsed && (
-                <div
-                  className={`h-full bg-slate-50/50 overflow-y-auto p-6 md:p-10 ${
-                    isExpandedLeft ? 'w-3/4' : 'w-1/2'
-                  }`}
-                >
-                  <div
-                    className="bluebook-passage-content max-w-xl mx-auto text-slate-900 text-sm md:text-base leading-relaxed font-serif tracking-normal"
-                    onMouseUp={handleTextSelect}
-                  >
-                    <MarkdownRenderer
-                      content={currentQ.passageText || ''}
-                      highlights={currentQuestionHighlights}
-                      onHighlightClick={handleHighlightClick}
-                    />
+                  {/* LEFT PANE: READING PASSAGE / STIMULUS */}
+                  {!isLeftCollapsed && (
+                    <div
+                      className={`h-full bg-slate-50/50 overflow-y-auto p-6 md:p-10 ${
+                        isExpandedLeft ? 'w-3/4' : 'w-1/2'
+                      }`}
+                    >
+                      <div
+                        className="bluebook-passage-content max-w-xl mx-auto text-slate-900 text-sm md:text-base leading-relaxed font-serif tracking-normal"
+                        onMouseUp={handleTextSelect}
+                      >
+                        <MarkdownRenderer
+                          content={currentQ.passageText || ''}
+                          highlights={currentQuestionHighlights}
+                          onHighlightClick={handleHighlightClick}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* RIGHT PANE: QUESTION & OPTIONS */}
+                  <div className={`h-full bg-white overflow-y-auto p-6 md:p-10 ${isExpandedLeft ? 'w-1/4' : 'w-1/2'}`}>
+                    <div className="max-w-xl mx-auto">
+                      {questionStemJsx}
+                    </div>
                   </div>
                 </div>
-              )}
+              );
+            }
 
-              {/* RIGHT PANE: QUESTION & OPTIONS */}
-              <div className={`h-full bg-white overflow-y-auto p-6 md:p-10 ${isExpandedLeft ? 'w-1/4' : 'w-1/2'}`}>
-                <div className="max-w-xl mx-auto">
+            // Single Centered Pane (e.g., Math section without passage)
+            return (
+              <div className="flex-1 overflow-y-auto bg-white p-6 md:p-10">
+                <div className="max-w-2xl mx-auto">
                   {questionStemJsx}
                 </div>
               </div>
-            </div>
-          );
-        }
+            );
+          })()}
+        </div>
 
-        // Single Centered Pane (e.g., Math section without passage)
-        return (
-          <div className="flex-1 overflow-y-auto bg-white p-6 md:p-10">
-            <div className="max-w-2xl mx-auto">
-              {questionStemJsx}
+        {/* DOCKED RESIZABLE DESMOS GRAPHING CALCULATOR (DOES NOT BLOCK QUESTIONS) */}
+        {showCalculator && (
+          <div className="flex shrink-0 h-full border-l border-slate-300 z-30 shadow-lg bg-white">
+            {/* Drag Handle to Resize */}
+            <div
+              onMouseDown={handleCalcResizeMouseDown}
+              className="w-2 hover:w-2.5 bg-slate-200 hover:bg-blue-500 cursor-col-resize flex items-center justify-center transition-all group select-none"
+              title="Drag to resize calculator"
+            >
+              <div className="w-0.5 h-8 bg-slate-400 group-hover:bg-white rounded-full" />
+            </div>
+
+            {/* Calculator Panel */}
+            <div
+              style={{ width: `${calculatorWidth}px` }}
+              className="h-full flex flex-col bg-white overflow-hidden"
+            >
+              <div className="h-10 bg-slate-900 text-white px-3.5 flex items-center justify-between shrink-0 select-none">
+                <span className="text-xs font-bold flex items-center gap-2">
+                  <Calculator className="w-4 h-4 text-blue-400" />
+                  <span>Desmos Graphing Calculator</span>
+                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-slate-400 font-mono hidden sm:inline">{calculatorWidth}px</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowCalculator(false)}
+                    className="p-1 hover:bg-slate-800 rounded text-slate-300 transition-colors cursor-pointer"
+                    title="Close calculator"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+              <iframe
+                src="https://www.desmos.com/calculator"
+                title="Desmos Graphing Calculator"
+                className="w-full flex-1 border-0"
+              />
             </div>
           </div>
-        );
-      })()}
+        )}
+      </div>
 
       {/* ================= FLOATING HIGHLIGHT TOOLBAR ================= */}
       {pendingSelection && (
@@ -1587,6 +1650,7 @@ export default function BluebookTestShell({
         <div className="flex items-center gap-3">
           <button
             type="button"
+            id="back-question-btn"
             onClick={() => setCurrentIndex((prev) => Math.max(activeModule.startIndex, prev - 1))}
             disabled={currentIndex === activeModule.startIndex}
             className="px-5 py-2.5 rounded-full border border-slate-300 bg-white hover:bg-slate-50 disabled:opacity-40 text-slate-700 text-xs font-bold transition-colors cursor-pointer"
@@ -1597,19 +1661,21 @@ export default function BluebookTestShell({
           {instantFeedback && !checkedQuestions[currentIndex] ? (
             <button
               type="button"
+              id="check-answer-btn"
               onClick={() => handleCheckAnswer(currentIndex)}
               disabled={!answers[currentIndex]?.trim()}
               title={!answers[currentIndex]?.trim() ? 'Please select or type an answer first' : 'Click to check answer'}
-              className="px-6 py-2.5 rounded-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs shadow-sm transition-transform active:scale-95 flex items-center gap-1.5 cursor-pointer"
+              className="px-6 py-2.5 rounded-full bg-[#0073e6] hover:bg-[#005fb8] disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs shadow-sm transition-transform active:scale-95 flex items-center gap-1.5 cursor-pointer min-w-[130px] justify-center"
             >
-              <Sparkles className="w-4 h-4 text-indigo-200" />
               <span>Check Answer</span>
+              <Sparkles className="w-4 h-4 text-blue-200" />
             </button>
           ) : currentIndex < activeModule.endIndex ? (
             <button
               type="button"
+              id="next-question-btn"
               onClick={() => setCurrentIndex((prev) => Math.min(activeModule.endIndex, prev + 1))}
-              className="px-6 py-2.5 rounded-full bg-[#0073e6] hover:bg-[#005fb8] text-white font-bold text-xs shadow-sm transition-transform active:scale-95 flex items-center gap-1.5 cursor-pointer"
+              className="px-6 py-2.5 rounded-full bg-[#0073e6] hover:bg-[#005fb8] text-white font-bold text-xs shadow-sm transition-transform active:scale-95 flex items-center gap-1.5 cursor-pointer min-w-[130px] justify-center"
             >
               <span>Next</span>
               <ArrowRight className="w-4 h-4" />
@@ -1617,8 +1683,9 @@ export default function BluebookTestShell({
           ) : (
             <button
               type="button"
+              id="review-module-btn"
               onClick={() => setIsReviewScreenOpen(true)}
-              className="px-6 py-2.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm transition-transform active:scale-95 flex items-center gap-1.5 cursor-pointer"
+              className="px-6 py-2.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm transition-transform active:scale-95 flex items-center gap-1.5 cursor-pointer min-w-[130px] justify-center"
             >
               <span>Review Module</span>
               <Check className="w-4 h-4" />
@@ -1809,30 +1876,6 @@ export default function BluebookTestShell({
               <ArrowRight className="w-4 h-4" />
             </button>
           </div>
-        </div>
-      )}
-
-      {/* ================= DESMOS GRAPHING CALCULATOR ================= */}
-      {showCalculator && (
-        <div className="fixed top-16 right-6 z-50 w-96 md:w-[480px] h-[520px] bg-white rounded-2xl border border-slate-300 shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-          <div className="h-10 bg-slate-900 text-white px-4 flex items-center justify-between shrink-0 select-none">
-            <span className="text-xs font-bold flex items-center gap-2">
-              <Calculator className="w-4 h-4 text-blue-400" />
-              <span>Desmos Graphing Calculator</span>
-            </span>
-            <button
-              type="button"
-              onClick={() => setShowCalculator(false)}
-              className="p-1 hover:bg-slate-800 rounded text-slate-300 cursor-pointer"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-          <iframe
-            src="https://www.desmos.com/calculator"
-            title="Desmos Graphing Calculator"
-            className="w-full flex-1 border-0"
-          />
         </div>
       )}
 

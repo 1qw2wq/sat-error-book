@@ -158,7 +158,7 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
   const [builderDifficultyRange, setBuilderDifficultyRange] = useState<[number, number]>(
     () => (Array.isArray(getStoredBuilderState()?.difficultyRange) && getStoredBuilderState()?.difficultyRange.length === 2)
       ? getStoredBuilderState()?.difficultyRange
-      : [1, 10]
+      : [5, 10]
   );
   const [builderType, setBuilderType] = useState<'All' | 'Single Choice' | 'Fill-in-the-Blank / Free Response'>(
     () => (getStoredBuilderState()?.type as any) || 'All'
@@ -363,6 +363,17 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
     const timer = setTimeout(async () => {
       try {
         setIsCountingPool(true);
+
+        // Gather all practiced question IDs to exclude
+        const history = getPracticeHistory();
+        const completedIds = new Set<number>();
+        history.forEach((item) => {
+          item.questionSummaries?.forEach((qs) => {
+            const id = typeof qs.questionId === 'number' ? qs.questionId : parseInt(String(qs.questionId), 10);
+            if (!isNaN(id)) completedIds.add(id);
+          });
+        });
+
         const params = new URLSearchParams({
           action: 'pool_count',
           section: builderSection,
@@ -375,6 +386,10 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
           type: builderType,
           hasGraphs: String(builderOnlyGraphs),
         });
+
+        if (completedIds.size > 0) {
+          params.set('excludeIds', Array.from(completedIds).join(','));
+        }
 
         const res = await fetch(`/api/questions?${params.toString()}`);
         const data = await res.json();
@@ -485,7 +500,7 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
     setBuilderModule('All');
     setBuilderYear('All');
     setBuilderExam('All');
-    setBuilderDifficultyRange([1, 10]);
+    setBuilderDifficultyRange([5, 10]);
     setBuilderType('All');
     setBuilderOnlyGraphs(false);
     setBuilderCount(20);
@@ -493,13 +508,13 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
     setBuilderDeliveryMode('instant_feedback');
   };
 
-  // Quick difficulty range buttons
-  const handleSetDifficultyTier = (tier: 'all' | 'foundational' | 'target700' | 'elite800') => {
+  // Quick difficulty range buttons (Scale: 5 = Hardest, 10 = Easiest)
+  const handleSetDifficultyTier = (tier: 'all' | 'hardest' | 'medium' | 'easiest') => {
     setActivePresetId(null);
-    if (tier === 'all') setBuilderDifficultyRange([1, 10]);
-    else if (tier === 'foundational') setBuilderDifficultyRange([1, 4]);
-    else if (tier === 'target700') setBuilderDifficultyRange([5, 7]);
-    else if (tier === 'elite800') setBuilderDifficultyRange([8, 10]);
+    if (tier === 'all') setBuilderDifficultyRange([5, 10]);
+    else if (tier === 'hardest') setBuilderDifficultyRange([5, 6]);
+    else if (tier === 'medium') setBuilderDifficultyRange([7, 8]);
+    else if (tier === 'easiest') setBuilderDifficultyRange([9, 10]);
   };
 
   // Fetch Browser Questions
@@ -657,6 +672,16 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
   const handleStartCustomDrill = async () => {
     setIsGeneratingTest(true);
     try {
+      // Gather all practiced question IDs to exclude
+      const history = getPracticeHistory();
+      const completedIds = new Set<number>();
+      history.forEach((item) => {
+        item.questionSummaries?.forEach((qs) => {
+          const id = typeof qs.questionId === 'number' ? qs.questionId : parseInt(String(qs.questionId), 10);
+          if (!isNaN(id)) completedIds.add(id);
+        });
+      });
+
       const params = new URLSearchParams({
         action: 'random',
         count: String(builderCount),
@@ -670,6 +695,10 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
         type: builderType,
         hasGraphs: String(builderOnlyGraphs),
       });
+
+      if (completedIds.size > 0) {
+        params.set('excludeIds', Array.from(completedIds).join(','));
+      }
 
       const res = await fetch(`/api/questions?${params.toString()}`);
       const data = await res.json();
@@ -714,6 +743,15 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
         isUntimed: isUntimedDrill,
         isOfficialExam: false,
         instantFeedback: builderDeliveryMode === 'instant_feedback',
+        presetConfig: {
+          section: builderSection,
+          domain: builderDomain,
+          module: builderModule,
+          difficultyRange: builderDifficultyRange,
+          type: builderType,
+          timerMode: builderTimerMode,
+          deliveryMode: builderDeliveryMode,
+        },
       });
     } catch (err) {
       console.error('Failed to start drill:', err);
@@ -1577,51 +1615,52 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
                   </h3>
                 </div>
 
-                {/* Quick Difficulty Presets */}
+                {/* Quick Difficulty Presets (5 = Hardest, 10 = Easiest) */}
                 <div className="space-y-1.5">
-                  <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400">
-                    Difficulty Preset Bands
+                  <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 flex items-center justify-between">
+                    <span>Difficulty Preset Bands</span>
+                    <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold font-mono">5 = Hardest • 10 = Easiest</span>
                   </label>
                   <div className="grid grid-cols-2 gap-1.5">
                     <button
                       onClick={() => handleSetDifficultyTier('all')}
                       className={`py-1.5 px-2 rounded-xl text-xs font-bold transition-all text-center cursor-pointer ${
-                        builderDifficultyRange[0] === 1 && builderDifficultyRange[1] === 10
+                        builderDifficultyRange[0] === 5 && builderDifficultyRange[1] === 10
                           ? 'bg-amber-600 text-white shadow-xs'
                           : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/60'
                       }`}
                     >
-                      All (1-10)
+                      All (5-10)
                     </button>
                     <button
-                      onClick={() => handleSetDifficultyTier('foundational')}
+                      onClick={() => handleSetDifficultyTier('hardest')}
                       className={`py-1.5 px-2 rounded-xl text-xs font-bold transition-all text-center cursor-pointer ${
-                        builderDifficultyRange[0] === 1 && builderDifficultyRange[1] === 4
+                        builderDifficultyRange[0] === 5 && builderDifficultyRange[1] === 6
                           ? 'bg-amber-600 text-white shadow-xs'
                           : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/60'
                       }`}
                     >
-                      Foundational (1-4)
+                      Hardest (5-6)
                     </button>
                     <button
-                      onClick={() => handleSetDifficultyTier('target700')}
+                      onClick={() => handleSetDifficultyTier('medium')}
                       className={`py-1.5 px-2 rounded-xl text-xs font-bold transition-all text-center cursor-pointer ${
-                        builderDifficultyRange[0] === 5 && builderDifficultyRange[1] === 7
+                        builderDifficultyRange[0] === 7 && builderDifficultyRange[1] === 8
                           ? 'bg-amber-600 text-white shadow-xs'
                           : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/60'
                       }`}
                     >
-                      Target 700+ (5-7)
+                      Medium (7-8)
                     </button>
                     <button
-                      onClick={() => handleSetDifficultyTier('elite800')}
+                      onClick={() => handleSetDifficultyTier('easiest')}
                       className={`py-1.5 px-2 rounded-xl text-xs font-bold transition-all text-center cursor-pointer ${
-                        builderDifficultyRange[0] === 8 && builderDifficultyRange[1] === 10
+                        builderDifficultyRange[0] === 9 && builderDifficultyRange[1] === 10
                           ? 'bg-amber-600 text-white shadow-xs'
                           : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/60'
                       }`}
                     >
-                      Elite 800 (8-10)
+                      Easiest (9-10)
                     </button>
                   </div>
                 </div>
@@ -1632,7 +1671,7 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
                     <span className="font-bold text-slate-700 dark:text-slate-300">
                       Range: <span className="font-mono text-amber-600 dark:text-amber-400 font-extrabold">{builderDifficultyRange[0]}</span> to <span className="font-mono text-amber-600 dark:text-amber-400 font-extrabold">{builderDifficultyRange[1]}</span>
                     </span>
-                    <span className="text-[10px] text-slate-400 font-mono">Scale 1-10</span>
+                    <span className="text-[10px] text-slate-400 font-mono">Scale 5-10</span>
                   </div>
 
                   <div className="space-y-2">
@@ -1640,7 +1679,7 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
                       <span className="text-[10px] font-bold text-slate-500 w-8">Min:</span>
                       <input
                         type="range"
-                        min="1"
+                        min="5"
                         max="10"
                         value={builderDifficultyRange[0]}
                         onChange={(e) => {
@@ -1659,7 +1698,7 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
                       <span className="text-[10px] font-bold text-slate-500 w-8">Max:</span>
                       <input
                         type="range"
-                        min="1"
+                        min="5"
                         max="10"
                         value={builderDifficultyRange[1]}
                         onChange={(e) => {
@@ -1677,12 +1716,12 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
 
                   {/* Difficulty interpretation banner */}
                   <div className="p-2.5 rounded-xl bg-amber-50/70 dark:bg-amber-950/40 border border-amber-200/50 dark:border-amber-900/50 text-[11px] text-amber-900 dark:text-amber-200">
-                    {builderDifficultyRange[0] >= 8 ? (
-                      <span>⚡ <strong>Hardest SAT Tier</strong>: Includes the most deceptive traps and multi-layered reasoning items.</span>
-                    ) : builderDifficultyRange[0] >= 5 ? (
-                      <span>🎯 <strong>Advanced Tier</strong>: Standard Module 2 level questions for 700+ target scores.</span>
+                    {builderDifficultyRange[0] <= 6 ? (
+                      <span>⚡ <strong>Hardest SAT Tier (5-6)</strong>: Includes the most deceptive traps and multi-layered reasoning items.</span>
+                    ) : builderDifficultyRange[0] <= 8 ? (
+                      <span>🎯 <strong>Medium Tier (7-8)</strong>: Standard target score questions.</span>
                     ) : (
-                      <span>📖 <strong>Balanced Tier</strong>: Core foundations, standard rules, and standard SAT patterns.</span>
+                      <span>📖 <strong>Easiest Tier (9-10)</strong>: Foundational rules and baseline questions.</span>
                     )}
                   </div>
                 </div>
@@ -2131,7 +2170,42 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
           savedSessions={savedSessions}
           onResumeSavedTest={handleResumeSavedTest}
           onRetakeTest={(item) => {
-            if (item.presetConfig) {
+            if (item.questionSummaries && item.questionSummaries.length > 0) {
+              const rawList: RawSATQuestion[] = item.questionSummaries.map((qs, idx) => ({
+                question_id: typeof qs.questionId === 'number' ? qs.questionId : parseInt(String(qs.questionId), 10) || idx + 1,
+                question_no: typeof qs.questionNo === 'number' ? qs.questionNo : idx + 1,
+                question: qs.passageText ? `${qs.passageText}\n\n${qs.questionPrompt}` : (qs.questionPrompt || ''),
+                section: (qs.section || item.section || 'Reading and Writing') as any,
+                category: qs.subTopic || '',
+                difficulty: typeof qs.difficulty === 'number' ? qs.difficulty : 5,
+                answers: qs.correctAnswer || '',
+                selections: qs.choices || [],
+                explanations: qs.explanation || '',
+                graphs: qs.graphData?.croppedGraphUrl ? [qs.graphData.croppedGraphUrl] : [],
+                exam_name: item.examName || item.title || 'SAT Practice Test',
+                module: 'Module 1',
+                question_type: qs.choices && qs.choices.length > 0 ? 'Single Choice' : 'Fill-in-the-Blank / Free Response',
+              }));
+
+              const bluebookList: BluebookQuestionItem[] = rawList.map((q, idx) =>
+                transformRawToBluebookQuestion(q, idx)
+              );
+
+              const isOfficial = item.examType === 'official_full' || item.examType === 'official_section';
+              setTestingSession({
+                isOpen: true,
+                title: `Retake: ${item.title.replace(/^Retake:\s*/, '')}`,
+                sectionName: item.section || 'SAT Practice Retake',
+                questions: bluebookList,
+                rawQuestions: rawList,
+                timerSeconds: isOfficial ? 0 : Math.round(bluebookList.length * 75),
+                perQuestionTimerSeconds: 0,
+                isUntimed: false,
+                isOfficialExam: isOfficial,
+                instantFeedback: item.presetConfig?.deliveryMode === 'instant_feedback',
+                presetConfig: item.presetConfig,
+              });
+            } else if (item.presetConfig) {
               if (item.presetConfig.section) setBuilderSection(item.presetConfig.section as any);
               if (item.presetConfig.domain) setBuilderDomain(item.presetConfig.domain);
               if (item.presetConfig.module) setBuilderModule(item.presetConfig.module as any);

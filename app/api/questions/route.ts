@@ -432,17 +432,25 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ success: true, question });
   }
 
-  if (action === 'random' || action === 'builder_drill') {
-    const count = Math.min(100, Math.max(1, parseInt(searchParams.get('count') || '20', 10)));
+  if (action === 'pool_count') {
     const section = searchParams.get('section');
     const domain = searchParams.get('domain');
     const moduleFilter = searchParams.get('module');
     const year = searchParams.get('year');
     const examName = searchParams.get('exam_name');
-    const minDiff = parseInt(searchParams.get('minDiff') || '1', 10);
+    const minDiff = parseInt(searchParams.get('minDiff') || '5', 10);
     const maxDiff = parseInt(searchParams.get('maxDiff') || '10', 10);
     const type = searchParams.get('type');
     const hasGraphs = searchParams.get('hasGraphs') === 'true';
+    const excludeParam = searchParams.get('excludeIds');
+
+    const excludeSet = new Set<number>();
+    if (excludeParam) {
+      excludeParam.split(',').forEach((idStr) => {
+        const idNum = parseInt(idStr.trim(), 10);
+        if (!isNaN(idNum)) excludeSet.add(idNum);
+      });
+    }
 
     const pool = questions.filter((q) =>
       matchesFilters(q, {
@@ -458,19 +466,87 @@ export async function GET(req: NextRequest) {
       })
     );
 
-    // Shuffle pool (Fisher-Yates)
-    const shuffled = [...pool];
-    for (let i = shuffled.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    const unpracticedPool = pool.filter((q) => !excludeSet.has(q.question_id));
+
+    return NextResponse.json({
+      success: true,
+      poolCount: pool.length,
+      unpracticedCount: unpracticedPool.length,
+    });
+  }
+
+  if (action === 'random' || action === 'builder_drill') {
+    const count = Math.min(100, Math.max(1, parseInt(searchParams.get('count') || '20', 10)));
+    const section = searchParams.get('section');
+    const domain = searchParams.get('domain');
+    const moduleFilter = searchParams.get('module');
+    const year = searchParams.get('year');
+    const examName = searchParams.get('exam_name');
+    const minDiff = parseInt(searchParams.get('minDiff') || '5', 10);
+    const maxDiff = parseInt(searchParams.get('maxDiff') || '10', 10);
+    const type = searchParams.get('type');
+    const hasGraphs = searchParams.get('hasGraphs') === 'true';
+    const excludeParam = searchParams.get('excludeIds');
+
+    const excludeSet = new Set<number>();
+    if (excludeParam) {
+      excludeParam.split(',').forEach((idStr) => {
+        const idNum = parseInt(idStr.trim(), 10);
+        if (!isNaN(idNum)) excludeSet.add(idNum);
+      });
     }
 
-    const selected = shuffled.slice(0, count);
+    const pool = questions.filter((q) =>
+      matchesFilters(q, {
+        section,
+        domain,
+        module: moduleFilter,
+        year,
+        exam_name: examName,
+        minDiff,
+        maxDiff,
+        type,
+        hasGraphs,
+      })
+    );
+
+    // Prioritize unpracticed questions:
+    // If the user has not completed all questions from this filter, serve only unpracticed questions.
+    // If all matching questions have been finished (or unpracticed < count), fill remaining with practiced questions.
+    const unpracticedPool = pool.filter((q) => !excludeSet.has(q.question_id));
+    const practicedPool = pool.filter((q) => excludeSet.has(q.question_id));
+
+    // Fisher-Yates shuffle helper
+    const shuffleArray = <T>(arr: T[]): T[] => {
+      const copy = [...arr];
+      for (let i = copy.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [copy[i], copy[j]] = [copy[j], copy[i]];
+      }
+      return copy;
+    };
+
+    const shuffledUnpracticed = shuffleArray(unpracticedPool);
+    const shuffledPracticed = shuffleArray(practicedPool);
+
+    let selected: RawSATQuestion[] = [];
+    if (shuffledUnpracticed.length >= count) {
+      // Plenty of unpracticed questions available
+      selected = shuffledUnpracticed.slice(0, count);
+    } else if (shuffledUnpracticed.length > 0) {
+      // Take all remaining unpracticed questions, fill the rest from practiced questions
+      const needed = count - shuffledUnpracticed.length;
+      selected = [...shuffledUnpracticed, ...shuffledPracticed.slice(0, needed)];
+    } else {
+      // All questions in this filter have been completed by the user: recycle the pool
+      selected = shuffledPracticed.slice(0, count);
+    }
 
     return NextResponse.json({
       success: true,
       count: selected.length,
       totalAvailable: pool.length,
+      unpracticedCount: unpracticedPool.length,
       questions: selected,
     });
   }
