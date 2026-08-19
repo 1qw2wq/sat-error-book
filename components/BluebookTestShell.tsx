@@ -1551,14 +1551,14 @@ export default function BluebookTestShell({
                 className="flex-1 px-2.5 py-1 text-xs rounded-md bg-slate-800 text-white border border-slate-600 focus:outline-none focus:ring-1 focus:ring-blue-400"
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
-                    updateHighlightNote(activeHighlight.item.id, activeHighlight.noteText);
+                    updateHighlightNote(activeHighlight.item.id, activeHighlight.noteText || '');
                   }
                 }}
                 autoFocus
               />
               <button
                 type="button"
-                onClick={() => updateHighlightNote(activeHighlight.item.id, activeHighlight.noteText)}
+                onClick={() => updateHighlightNote(activeHighlight.item.id, activeHighlight.noteText || '')}
                 className="px-2 py-1 rounded-md bg-blue-600 text-white font-bold text-[11px] hover:bg-blue-500 cursor-pointer"
               >
                 Save
