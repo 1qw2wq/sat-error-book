@@ -251,6 +251,19 @@ function renderInlineProse(
     );
   }
 
+  // Render bullet point line cleanly if starting with • or \u2022 or ▪
+  if (/^[•\u2022▪]\s+/.test(cleanProse)) {
+    const bulletText = cleanProse.replace(/^[•\u2022▪]\s+/, '');
+    return (
+      <span key={`bullet-${baseKey}`} className="flex items-start gap-2.5 my-1 pl-1 leading-relaxed">
+        <span className="inline-block w-2 h-2 rounded-full bg-slate-700 dark:bg-slate-300 mt-2 shrink-0 select-none" />
+        <span className="flex-1">
+          {renderInlineProse(bulletText, baseKey * 10, highlights, onHighlightClick)}
+        </span>
+      </span>
+    );
+  }
+
   // Support Markdown Images ![alt](url) or embedded pure image URLs
   const imgRegex = /(!\[.*?\]\(https?:\/\/[^\s\)]+\)|https?:\/\/[^\s]+(?:\.(?:png|jpg|jpeg|gif|webp|svg)|\/upload\/image\/[^\s]+))/gi;
   if (imgRegex.test(cleanProse)) {
@@ -305,14 +318,17 @@ function renderProseWithFormatting(
   if (prose.includes('\n')) {
     const lines = prose.split('\n');
     return (
-      <>
-        {lines.map((line, lIdx) => (
-          <React.Fragment key={`line-${baseKey}-${lIdx}`}>
-            {lIdx > 0 && <br />}
-            {renderInlineProse(line, baseKey * 100 + lIdx, highlights, onHighlightClick)}
-          </React.Fragment>
-        ))}
-      </>
+      <span className="block space-y-1">
+        {lines.map((line, lIdx) => {
+          const trimmed = line.trim();
+          if (!trimmed) return null;
+          return (
+            <React.Fragment key={`line-${baseKey}-${lIdx}`}>
+              {renderInlineProse(trimmed, baseKey * 100 + lIdx, highlights, onHighlightClick)}
+            </React.Fragment>
+          );
+        })}
+      </span>
     );
   }
 

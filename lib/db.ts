@@ -356,11 +356,23 @@ export async function importErrorsBatch(importedItems: SATErrorItem[]): Promise<
 export async function recordReview(
   errorId: string,
   rating: 'confused' | 'learning' | 'mastered',
-  timeSpentSeconds: number
+  timeSpentSeconds: number,
+  fallbackItem?: SATErrorItem
 ): Promise<SATErrorItem> {
   const db = await getDB();
-  const item = await db.get('errors', errorId);
-  if (!item) throw new Error('Error item not found');
+  let item = await db.get('errors', errorId);
+  if (!item) {
+    if (fallbackItem) {
+      item = fallbackItem;
+    } else {
+      // Try seed errors
+      const seeds = createDefaultSeedErrors();
+      item = seeds.find((s) => s.id === errorId);
+      if (!item) {
+        throw new Error(`Error item not found: ${errorId}`);
+      }
+    }
+  }
 
   const now = new Date();
   let nextLevel = item.masteryLevel || 0;
@@ -401,6 +413,7 @@ export async function recordReview(
 
   await db.put('errors', updatedItem);
   await db.put('review_logs', reviewLog);
+  await updateStatsOnSave();
 
   // Update study streak
   await recordStudyActivity();

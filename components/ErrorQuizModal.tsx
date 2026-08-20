@@ -119,6 +119,7 @@ export default function ErrorQuizModal({
     setSelectedChoice(null);
     setTypedResponse('');
     setShowScreenshot(false);
+    setMasteryUpdated(false);
     setStage('testing');
 
     if (timerMinutes > 0) {
@@ -196,6 +197,7 @@ export default function ErrorQuizModal({
 
     setTestRecords(newMap);
     setStage('results');
+    applyMasteryUpdatesForMap(newMap);
   };
 
   // Submit response for current item
@@ -241,6 +243,7 @@ export default function ErrorQuizModal({
       setShowScreenshot(false);
     } else {
       setStage('results');
+      applyMasteryUpdatesForMap(testRecords);
     }
   };
 
@@ -248,20 +251,39 @@ export default function ErrorQuizModal({
   const [masteryUpdated, setMasteryUpdated] = useState(false);
   const [isSavingMasteries, setIsSavingMasteries] = useState(false);
 
-  const handleApplyMasteryUpdates = async () => {
-    if (isSavingMasteries || masteryUpdated) return;
+  const applyMasteryUpdatesForMap = async (recordsMap: Map<string, TestAnswerRecord>) => {
+    if (isSavingMasteries) return;
     setIsSavingMasteries(true);
 
     try {
-      for (const record of Array.from(testRecords.values())) {
+      const updatedDeckMap = new Map<string, SATErrorItem>();
+
+      for (const record of Array.from(recordsMap.values())) {
         const item = record.item;
         const rating: 'confused' | 'learning' | 'mastered' = record.isCorrect
-          ? item.masteryStatus === 'Confused'
+          ? (!item.masteryStatus || item.masteryStatus === 'Confused')
             ? 'learning'
             : 'mastered'
           : 'confused';
 
-        await recordReview(item.id, rating, record.timeSpentSeconds || 20);
+        try {
+          const updated = await recordReview(item.id, rating, record.timeSpentSeconds || 20, item);
+          updatedDeckMap.set(item.id, updated);
+        } catch (itemErr) {
+          console.error(`Failed to record review for item ${item.id}:`, itemErr);
+        }
+      }
+
+      // Update testDeck items in state so UI badges reflect updated status
+      if (updatedDeckMap.size > 0) {
+        setTestDeck((prev) =>
+          prev.map((item) => {
+            const updated = updatedDeckMap.get(item.id);
+            return updated
+              ? { ...item, masteryStatus: updated.masteryStatus, masteryLevel: updated.masteryLevel }
+              : item;
+          })
+        );
       }
 
       setMasteryUpdated(true);
@@ -270,6 +292,30 @@ export default function ErrorQuizModal({
       console.error('Failed to update question masteries:', err);
     } finally {
       setIsSavingMasteries(false);
+    }
+  };
+
+  const handleApplyMasteryUpdates = async () => {
+    await applyMasteryUpdatesForMap(testRecords);
+  };
+
+  const handleSingleMasteryChange = async (item: SATErrorItem, newStatus: MasteryStatus) => {
+    const ratingMap: Record<MasteryStatus, 'confused' | 'learning' | 'mastered'> = {
+      Confused: 'confused',
+      Learning: 'learning',
+      Mastered: 'mastered',
+    };
+    try {
+      const updated = await recordReview(item.id, ratingMap[newStatus], 20, item);
+      setTestDeck((prev) =>
+        prev.map((td) =>
+          td.id === item.id ? { ...td, masteryStatus: updated.masteryStatus, masteryLevel: updated.masteryLevel } : td
+        )
+      );
+      setMasteryUpdated(true);
+      onRefreshData();
+    } catch (err) {
+      console.error('Failed to update mastery status:', err);
     }
   };
 
@@ -548,14 +594,32 @@ export default function ErrorQuizModal({
                           <MathRenderer text={item.questionText} />
                         </div>
 
-                        {!isCorrect && (
-                          <div className="p-2 rounded-lg bg-white/80 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 text-[11px] text-slate-700 dark:text-slate-300">
-                            <span className="font-bold text-amber-600 dark:text-amber-400">
-                              Takeaway:{' '}
-                            </span>
-                            {item.aiTakeaway}
+                        <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-200/60 dark:border-slate-800/60">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">Mastery:</span>
+                            <select
+                              value={item.masteryStatus || 'Confused'}
+                              onChange={(e) => handleSingleMasteryChange(item, e.target.value as MasteryStatus)}
+                              className={`px-2 py-0.5 text-xs rounded-lg font-bold border outline-none cursor-pointer ${
+                                item.masteryStatus === 'Mastered'
+                                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
+                                  : item.masteryStatus === 'Learning'
+                                  ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300 border-yellow-300 dark:border-yellow-800'
+                                  : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border-rose-300 dark:border-rose-800'
+                              }`}
+                            >
+                              <option value="Confused" className="bg-white dark:bg-slate-900 text-rose-700 dark:text-rose-400 font-medium">🔴 Confused</option>
+                              <option value="Learning" className="bg-white dark:bg-slate-900 text-amber-700 dark:text-amber-400 font-medium">🟡 Learning</option>
+                              <option value="Mastered" className="bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-400 font-medium">🟢 Mastered</option>
+                            </select>
                           </div>
-                        )}
+
+                          {!isCorrect && (
+                            <div className="text-[11px] text-amber-700 dark:text-amber-400 font-medium italic line-clamp-1 max-w-[200px] text-right">
+                              {item.aiTakeaway}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     );
                   })}

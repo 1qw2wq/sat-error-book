@@ -6,6 +6,7 @@ import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
 import MathRenderer, { HighlightItem, convertMathmlToLatex } from './MathRenderer';
 import { restoreUnderline } from '@/lib/questionBank';
+import { formatMathText } from '@/lib/mathFormatter';
 
 interface MarkdownRendererProps {
   content: string;
@@ -29,26 +30,7 @@ export default function MarkdownRenderer({
 }: MarkdownRendererProps) {
   const normalizedContent = useMemo(() => {
     if (!content) return '';
-    let text = content;
-    // Normalize literal escaped "\n" into actual newlines if the string has no real newlines
-    if (text.includes('\\n') && !text.includes('\n')) {
-      text = text.replace(/\\n/g, '\n');
-    }
-
-    // Auto line breaks before option choices (A), (B), (C), (D) or A), B), C), D) or A., B., C., D. or 选项A
-    text = text.replace(/([^\n])\s*(\([A-Da-d]\)|[A-Da-d]\)|[A-Da-d]\.|选项[A-Da-d])\s*/g, '$1\n$2 ');
-
-    // Auto line break before conclusion "所以选", "故选", "因此选"
-    text = text.replace(/([^\n])\s*(所以选|故选|因此选)\s*/g, '$1\n$2 ');
-
-    // Split math dollar blocks trapped around English connector words (e.g. "$g(a) = 18 and g(4)=b$" -> "$g(a) = 18$ and $g(4)=b$")
-    text = text.replace(/\$([^\$\n]+?)\$/g, (match, inner) => {
-      if (/\b(and|or|where|when|for|if)\b/i.test(inner)) {
-        let fixed = inner.replace(/\s+\b(and|or|where|when|for|if)\b\s+/gi, (m: string, word: string) => `$ ${word} $`);
-        return `$${fixed}$`;
-      }
-      return match;
-    });
+    let text = formatMathText(content);
 
     // Auto-restore underline if text mentions underlined but lacks <u> tags
     if (text.includes('underlined') && !/<u[\s>]|\\underline|<ins[\s>]/i.test(text)) {
