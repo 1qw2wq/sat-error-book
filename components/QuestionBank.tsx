@@ -49,6 +49,7 @@ import {
   Compass,
   CheckCheck,
   Edit3,
+  ShieldCheck,
 } from 'lucide-react';
 import {
   RawSATQuestion,
@@ -905,6 +906,12 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
     });
   };
 
+  // Discard an auto-saved in-progress session
+  const handleDiscardSavedSession = (id: string) => {
+    deleteSavedTestSession(id);
+    setSavedSessions(getSavedTestSessions());
+  };
+
   // Add individual question to SAT Error Book
   const handleAddToErrorBook = async (raw: RawSATQuestion, userAns?: string) => {
     try {
@@ -1033,6 +1040,45 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
           </div>
         </div>
       </div>
+
+      {/* Auto-Saved In-Progress Test Resume Alert */}
+      {savedSessions.length > 0 && !testingSession && (
+        <div className="p-4 sm:p-5 rounded-3xl bg-gradient-to-r from-amber-500/15 via-amber-500/5 to-transparent border-2 border-amber-300 dark:border-amber-700/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm animate-in fade-in duration-300">
+          <div className="flex items-start sm:items-center gap-3.5">
+            <div className="w-11 h-11 rounded-2xl bg-amber-500/20 border border-amber-400/40 flex items-center justify-center text-amber-600 dark:text-amber-400 shrink-0">
+              <ShieldCheck className="w-6 h-6 animate-pulse" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-black uppercase tracking-wider text-amber-700 dark:text-amber-400">
+                  Auto-Saved Test Detected
+                </span>
+                <span className="text-[11px] text-slate-500">
+                  ({savedSessions.length} in progress)
+                </span>
+              </div>
+              <p className="text-sm font-bold text-slate-900 dark:text-white">
+                {savedSessions[0].title} — <span className="font-normal text-slate-600 dark:text-slate-300">{Object.values(savedSessions[0].answers || {}).filter(Boolean).length} of {savedSessions[0].questions?.length || 0} answered</span>
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2.5 w-full sm:w-auto shrink-0">
+            <button
+              onClick={() => handleResumeSavedTest(savedSessions[0])}
+              className="flex-1 sm:flex-none px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs sm:text-sm font-bold shadow-xs transition-all flex items-center justify-center gap-2 active:scale-95 cursor-pointer"
+            >
+              <Play className="w-4 h-4 fill-white" />
+              <span>Resume Test</span>
+            </button>
+            <button
+              onClick={() => handleDiscardSavedSession(savedSessions[0].id)}
+              className="px-3.5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-semibold transition-all cursor-pointer"
+            >
+              Discard
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Main View Navigation Tabs */}
       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">

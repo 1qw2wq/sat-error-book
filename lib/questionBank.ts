@@ -154,11 +154,11 @@ export function splitPassageAndPrompt(
     return { questionPrompt: formatted };
   }
 
-  // Common prompt trigger prefixes in SAT Reading & Writing (using non-capturing groups to prevent text duplication)
+  // Common prompt trigger prefixes in SAT Reading & Writing (using lookahead to split passage from prompt)
   const promptTriggers = [
-    /\n\n(?=(?:Which choice|Based on the text|According to the text|What is the main|The author of|It can most reasonably|As used in the text|The primary purpose|Which finding|Which quotation|Which statement))/i,
-    /\n\n(?=(?:In the text,|In Text 1,|In Text 2,|With which of the following))/i,
-    /\n(?=(?:Which choice completes the text|Which choice best describes|Which choice most effectively|Which choice best states|Which choice conforms))/i,
+    /\n+(?=(?:Which choice|Based on the text|Based on the texts|According to the text|According to both texts|What is the main|What does the text|The author of|It can most reasonably|As used in the text|The primary purpose|Which finding|Which quotation|Which statement|Which sentence|Which idea))/i,
+    /\n+(?=(?:In the text,|In Text 1,|In Text 2,|With which of the following))/i,
+    /(?<=\.)\s+(?=(?:Which choice|Based on the text|Based on the texts|According to the text|According to both texts|What does the text|What is the main|Which finding|Which quotation|Which statement)\b)/i,
   ];
 
   for (const regex of promptTriggers) {
@@ -168,8 +168,8 @@ export function splitPassageAndPrompt(
       const prompt = parts.slice(1).join('').trim();
       if (passage.length > 20 && prompt.length > 5) {
         return {
-          passageText: passage,
-          questionPrompt: prompt,
+          passageText: formatMathText(passage),
+          questionPrompt: formatMathText(prompt),
         };
       }
     }

@@ -30,12 +30,13 @@ import {
   ArrowLeft,
   Sparkles,
   Save,
+  ShieldCheck,
 } from 'lucide-react';
 import MathRenderer from './MathRenderer';
 import GraphRenderer from './GraphRenderer';
 import MarkdownRenderer from './MarkdownRenderer';
 import { gradeStudentResponse, evaluateSATQuestionAnswer } from '../lib/answerGrading';
-import { saveError, saveTestSession } from '../lib/db';
+import { saveError, saveTestSession, deleteSavedTestSession } from '../lib/db';
 import { transformRawToErrorItem } from '../lib/questionBank';
 import { SATErrorItem, RawSATQuestion, SavedTestSession } from '../types/sat';
 
@@ -418,7 +419,22 @@ export default function BluebookTestShell({
 
   const answersRef = useRef<Record<number, string>>(answers);
   const markedForReviewRef = useRef<Record<number, boolean>>(markedForReview);
+  const currentIndexRef = useRef<number>(currentIndex);
+  const currentModuleIdxRef = useRef<number>(currentModuleIdx);
+  const moduleTimeLeftRef = useRef<number>(moduleTimeLeft);
   const onFinishTestRef = useRef(onFinishTest);
+
+  // Active persistent session ID (stays stable across the entire test session)
+  const [activeSessionId] = useState<string>(() => {
+    return savedSessionId || `session-sat-${Date.now()}-${Math.floor(Math.random() * 1000000).toString(36)}`;
+  });
+  const activeSessionIdRef = useRef<string>(activeSessionId);
+  useEffect(() => {
+    activeSessionIdRef.current = activeSessionId;
+  }, [activeSessionId]);
+
+  const isTestFinishedRef = useRef<boolean>(false);
+  const [lastAutoSavedAt, setLastAutoSavedAt] = useState<number>(() => Date.now());
 
   useEffect(() => {
     answersRef.current = answers;
@@ -429,11 +445,127 @@ export default function BluebookTestShell({
   }, [markedForReview]);
 
   useEffect(() => {
+    currentIndexRef.current = currentIndex;
+  }, [currentIndex]);
+
+  useEffect(() => {
+    currentModuleIdxRef.current = currentModuleIdx;
+  }, [currentModuleIdx]);
+
+  useEffect(() => {
+    moduleTimeLeftRef.current = moduleTimeLeft;
+  }, [moduleTimeLeft]);
+
+  useEffect(() => {
     onFinishTestRef.current = onFinishTest;
   }, [onFinishTest]);
 
-  // Handle final test completion
+  // Robust Auto-Save Engine: Saves test progress, answers, marked questions & timers to localStorage
+  const performAutoSave = useCallback(() => {
+    if (isTestFinishedRef.current || !questions || questions.length === 0) return;
+    try {
+      const sessionElapsed = Math.floor((Date.now() - (testStartTimeRef.current || Date.now())) / 1000);
+      const totalElapsed = accumulatedTimeRef.current + sessionElapsed;
+      const sessionId = activeSessionIdRef.current;
+
+      const savedSession: SavedTestSession = {
+        id: sessionId,
+        title,
+        sectionName,
+        examType: examType || 'official_full',
+        createdAt: new Date().toISOString(),
+        lastSavedAt: new Date().toISOString(),
+        questions,
+        rawQuestions: rawQuestions || [],
+        answers: answersRef.current,
+        markedForReview: markedForReviewRef.current,
+        currentIndex: currentIndexRef.current,
+        currentModuleIdx: currentModuleIdxRef.current,
+        timeSpentSeconds: totalElapsed,
+        moduleTimeLeft: moduleTimeLeftRef.current,
+        timerSeconds,
+        perQuestionTimerSeconds,
+        isUntimed,
+        isOfficialExam,
+        instantFeedback,
+        presetConfig,
+      };
+
+      saveTestSession(savedSession);
+      setLastAutoSavedAt(Date.now());
+    } catch (err) {
+      console.warn('Auto-save failed:', err);
+    }
+  }, [
+    title,
+    sectionName,
+    examType,
+    questions,
+    rawQuestions,
+    timerSeconds,
+    perQuestionTimerSeconds,
+    isUntimed,
+    isOfficialExam,
+    instantFeedback,
+    presetConfig,
+  ]);
+
+  // Auto-save on answer, mark, or question navigation changes
+  useEffect(() => {
+    if (isTestFinishedRef.current) return;
+    performAutoSave();
+  }, [answers, markedForReview, currentIndex, currentModuleIdx, performAutoSave]);
+
+  // Periodic background auto-save (every 4 seconds to sync elapsed/remaining timers)
+  useEffect(() => {
+    if (isTestFinishedRef.current) return;
+    const autoSaveInterval = setInterval(() => {
+      performAutoSave();
+    }, 4000);
+
+    return () => clearInterval(autoSaveInterval);
+  }, [performAutoSave]);
+
+  // Prevent accidental tab close, reload, or page navigation while taking test
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isTestFinishedRef.current) return;
+      // Immediately perform synchronous auto-save so state is saved before close
+      performAutoSave();
+      e.preventDefault();
+      e.returnValue = 'Your SAT test is currently in progress. Your work is auto-saved, but are you sure you want to leave this page?';
+      return e.returnValue;
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden' && !isTestFinishedRef.current) {
+        performAutoSave();
+      }
+    };
+
+    const handlePageHide = () => {
+      if (!isTestFinishedRef.current) {
+        performAutoSave();
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('pagehide', handlePageHide);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('pagehide', handlePageHide);
+    };
+  }, [performAutoSave]);
+
+  // Handle final test completion: Clean up in-progress saved session and submit
   const handleCompleteTest = useCallback(() => {
+    isTestFinishedRef.current = true;
+    // Delete in-progress draft so it doesn't linger after final submission
+    deleteSavedTestSession(activeSessionIdRef.current);
+
     const sessionElapsed = Math.floor((Date.now() - testStartTimeRef.current) / 1000);
     const totalElapsed = accumulatedTimeRef.current + sessionElapsed;
     onFinishTestRef.current({
@@ -445,9 +577,10 @@ export default function BluebookTestShell({
 
   // Handle Save & Exit
   const handleConfirmSaveAndExit = useCallback(() => {
+    isTestFinishedRef.current = true;
     const sessionElapsed = Math.floor((Date.now() - testStartTimeRef.current) / 1000);
     const totalElapsed = accumulatedTimeRef.current + sessionElapsed;
-    const sessionId = savedSessionId || `session-${Date.now()}`;
+    const sessionId = activeSessionIdRef.current;
 
     const savedSession: SavedTestSession = {
       id: sessionId,
@@ -483,7 +616,6 @@ export default function BluebookTestShell({
       }
     }, 600);
   }, [
-    savedSessionId,
     title,
     sectionName,
     examType,
@@ -850,25 +982,43 @@ export default function BluebookTestShell({
       className="bluebook-test-container fixed inset-0 z-50 bg-white text-slate-900 font-sans flex flex-col select-text overflow-hidden antialiased"
     >
       <style>{`
-        .bluebook-test-container {
+        .bluebook-test-container,
+        html.dark .bluebook-test-container,
+        .dark .bluebook-test-container {
           color-scheme: light !important;
+          background-color: #ffffff !important;
+          color: #0f172a !important;
         }
-        .bluebook-test-container strong,
-        .bluebook-test-container b,
-        .bluebook-prompt-content strong,
-        .bluebook-prompt-content b,
+        .bluebook-test-container ::selection,
+        .bluebook-passage-content ::selection,
+        .bluebook-prompt-content ::selection {
+          background-color: #bfdbfe !important;
+          color: #0f172a !important;
+        }
+        .bluebook-passage-content,
+        .bluebook-passage-content p,
+        .bluebook-passage-content li,
+        .bluebook-passage-content ul,
+        .bluebook-passage-content ol,
+        .bluebook-prompt-content,
+        .bluebook-prompt-content p,
+        .bluebook-prompt-content li,
+        .bluebook-prompt-content ul,
+        .bluebook-prompt-content ol {
+          color: #0f172a !important;
+        }
         .bluebook-passage-content strong,
-        .bluebook-passage-content b {
+        .bluebook-passage-content b,
+        .bluebook-prompt-content strong,
+        .bluebook-prompt-content b {
           color: #000000 !important;
-          font-weight: 900 !important;
+          font-weight: 800 !important;
           -webkit-text-fill-color: #000000 !important;
         }
-        .bluebook-test-container u,
-        .bluebook-test-container ins,
-        .bluebook-prompt-content u,
-        .bluebook-prompt-content ins,
         .bluebook-passage-content u,
-        .bluebook-passage-content ins {
+        .bluebook-passage-content ins,
+        .bluebook-prompt-content u,
+        .bluebook-prompt-content ins {
           text-decoration-color: #000000 !important;
           color: inherit !important;
         }
@@ -876,6 +1026,16 @@ export default function BluebookTestShell({
         .bluebook-prompt-content .katex,
         .bluebook-passage-content .katex {
           color: #000000 !important;
+          user-select: text !important;
+        }
+        .bluebook-test-container .katex-html {
+          user-select: text !important;
+        }
+        .bluebook-nav-pill,
+        .bluebook-nav-pill *,
+        .bluebook-btn-white,
+        .bluebook-btn-white * {
+          color: #ffffff !important;
         }
       `}</style>
 
@@ -1029,6 +1189,16 @@ export default function BluebookTestShell({
             )}
           </button>
 
+          {/* Live Auto-Saved Indicator */}
+          <div
+            className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200/90 text-emerald-800 text-[11px] font-semibold select-none shadow-2xs"
+            title="Auto-Save is Active: All your answers, bookmarks, and timer progress are saved continuously."
+          >
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Auto-saved</span>
+          </div>
+
           {/* Module Review Button */}
           <button
             type="button"
@@ -1163,8 +1333,9 @@ export default function BluebookTestShell({
 
             {/* Question Prompt Stem */}
             <div
-              className="bluebook-prompt-content text-slate-900 text-base md:text-lg leading-relaxed font-serif tracking-normal my-3 p-3.5 sm:p-5 rounded-2xl bg-slate-50/70 border border-slate-200/80 shadow-2xs overflow-x-auto min-w-0 w-full"
+              className="bluebook-prompt-content text-slate-900 text-base md:text-lg leading-relaxed font-serif tracking-normal my-3 p-3.5 sm:p-5 rounded-2xl bg-slate-50/70 border border-slate-200/80 shadow-2xs overflow-x-auto min-w-0 w-full select-text"
               onMouseUp={handleTextSelect}
+              onTouchEnd={handleTextSelect}
             >
               <MarkdownRenderer
                 content={currentQ.questionPrompt}
@@ -1407,8 +1578,9 @@ export default function BluebookTestShell({
                       }`}
                     >
                       <div
-                        className="bluebook-passage-content max-w-xl mx-auto text-slate-900 text-sm md:text-base leading-relaxed font-serif tracking-normal"
+                        className="bluebook-passage-content max-w-xl mx-auto text-slate-900 text-sm md:text-base leading-relaxed font-serif tracking-normal select-text"
                         onMouseUp={handleTextSelect}
+                        onTouchEnd={handleTextSelect}
                       >
                         <MarkdownRenderer
                           content={currentQ.passageText || ''}
@@ -1684,12 +1856,12 @@ export default function BluebookTestShell({
           <button
             type="button"
             onClick={() => setShowQuestionNav((prev) => !prev)}
-            className="flex items-center gap-2 px-4 py-2 rounded-full bg-slate-950 text-white text-xs font-bold hover:bg-slate-800 transition-colors shadow-sm cursor-pointer"
+            className="bluebook-nav-pill flex items-center gap-2 px-4 py-2 rounded-full bg-slate-950 text-white text-xs font-bold hover:bg-slate-800 transition-colors shadow-sm cursor-pointer"
           >
-            <span>
+            <span className="text-white font-bold">
               Question {activeModuleQIndex} of {activeModuleTotalQ}
             </span>
-            <ChevronUp className={`w-4 h-4 transition-transform ${showQuestionNav ? 'rotate-180' : ''}`} />
+            <ChevronUp className={`w-4 h-4 text-white transition-transform ${showQuestionNav ? 'rotate-180' : ''}`} />
           </button>
 
           {/* Question Navigator Popover */}
@@ -1766,9 +1938,9 @@ export default function BluebookTestShell({
               onClick={() => handleCheckAnswer(currentIndex)}
               disabled={!answers[currentIndex]?.trim()}
               title={!answers[currentIndex]?.trim() ? 'Please select or type an answer first' : 'Click to check answer'}
-              className="px-6 py-2.5 rounded-full bg-[#0073e6] hover:bg-[#005fb8] disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs shadow-sm transition-transform active:scale-95 flex items-center gap-1.5 cursor-pointer min-w-[130px] justify-center"
+              className="bluebook-btn-white px-6 py-2.5 rounded-full bg-[#0073e6] hover:bg-[#005fb8] disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs shadow-sm transition-transform active:scale-95 flex items-center gap-1.5 cursor-pointer min-w-[130px] justify-center"
             >
-              <span>Check Answer</span>
+              <span className="text-white">Check Answer</span>
               <Sparkles className="w-4 h-4 text-blue-200" />
             </button>
           ) : currentIndex < activeModule.endIndex ? (
@@ -1776,20 +1948,20 @@ export default function BluebookTestShell({
               type="button"
               id="next-question-btn"
               onClick={() => setCurrentIndex((prev) => Math.min(activeModule.endIndex, prev + 1))}
-              className="px-6 py-2.5 rounded-full bg-[#0073e6] hover:bg-[#005fb8] text-white font-bold text-xs shadow-sm transition-transform active:scale-95 flex items-center gap-1.5 cursor-pointer min-w-[130px] justify-center"
+              className="bluebook-btn-white px-6 py-2.5 rounded-full bg-[#0073e6] hover:bg-[#005fb8] text-white font-bold text-xs shadow-sm transition-transform active:scale-95 flex items-center gap-1.5 cursor-pointer min-w-[130px] justify-center"
             >
-              <span>Next</span>
-              <ArrowRight className="w-4 h-4" />
+              <span className="text-white">Next</span>
+              <ArrowRight className="w-4 h-4 text-white" />
             </button>
           ) : (
             <button
               type="button"
               id="review-module-btn"
               onClick={() => setIsReviewScreenOpen(true)}
-              className="px-6 py-2.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm transition-transform active:scale-95 flex items-center gap-1.5 cursor-pointer min-w-[130px] justify-center"
+              className="bluebook-btn-white px-6 py-2.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm transition-transform active:scale-95 flex items-center gap-1.5 cursor-pointer min-w-[130px] justify-center"
             >
-              <span>Review Module</span>
-              <Check className="w-4 h-4" />
+              <span className="text-white">Review Module</span>
+              <Check className="w-4 h-4 text-white" />
             </button>
           )}
         </div>

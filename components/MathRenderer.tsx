@@ -251,12 +251,12 @@ function renderInlineProse(
     );
   }
 
-  // Render bullet point line cleanly if starting with • or \u2022 or ▪
-  if (/^[•\u2022▪]\s+/.test(cleanProse)) {
-    const bulletText = cleanProse.replace(/^[•\u2022▪]\s+/, '');
+  // Render bullet point line cleanly if starting with •, \u2022, ▪, ·, or standalone * (never **)
+  if (/^(?:[•\u2022▪\u25AA‣\u2023◦\u25E6⁃\u2043・\u30FB∙\u2219·\u00B7]|\*(?!\*))\s*/.test(cleanProse)) {
+    const bulletText = cleanProse.replace(/^(?:[•\u2022▪\u25AA‣\u2023◦\u25E6⁃\u2043・\u30FB∙\u2219·\u00B7]|\*(?!\*))\s*/, '');
     return (
-      <span key={`bullet-${baseKey}`} className="flex items-start gap-2.5 my-1 pl-1 leading-relaxed">
-        <span className="inline-block w-2 h-2 rounded-full bg-slate-700 dark:bg-slate-300 mt-2 shrink-0 select-none" />
+      <span key={`bullet-${baseKey}`} className="flex items-start gap-2.5 my-1.5 pl-1 leading-relaxed text-inherit font-serif">
+        <span className="inline-block w-1.5 h-1.5 rounded-full bg-slate-700 dark:bg-slate-300 mt-2 shrink-0 select-none" />
         <span className="flex-1">
           {renderInlineProse(bulletText, baseKey * 10, highlights, onHighlightClick)}
         </span>

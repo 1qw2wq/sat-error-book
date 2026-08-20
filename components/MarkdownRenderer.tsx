@@ -21,6 +21,19 @@ interface MarkdownRendererProps {
  * with full KaTeX math support ($...$, $$...$$) and HTML tags.
  * Ensures bold text, underlines, and math remain crisp and inherit the proper container color.
  */
+function extractStringFromChildren(node: React.ReactNode): string {
+  if (node === null || node === undefined) return '';
+  if (typeof node === 'string') return node;
+  if (typeof node === 'number') return String(node);
+  if (Array.isArray(node)) {
+    return node.map(extractStringFromChildren).join('');
+  }
+  if (React.isValidElement(node) && node.props && (node.props as any).children) {
+    return extractStringFromChildren((node.props as any).children);
+  }
+  return '';
+}
+
 export default function MarkdownRenderer({
   content,
   className = '',
@@ -116,11 +129,48 @@ export default function MarkdownRenderer({
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeRaw]}
         components={{
-          p: ({ children }) => (
-            <div className="mb-2 last:mb-0 leading-relaxed font-normal text-inherit">
-              {renderChildrenWithMath(children)}
-            </div>
-          ),
+          p: ({ children }) => {
+            const textContent = extractStringFromChildren(children).trim();
+
+            // Check if SAT Intro sentence ("The following text is from...", "This text is adapted from...", "Adapted from...")
+            const isIntro = /^(?:The following (?:text|passage)|This (?:text|passage)|Excerpt|In Text 1|In Text 2|Adapted from|Excerpted from)\s+(?:is|was|has been|from|adapted|excerpted|taken)/i.test(textContent);
+
+            // Check if Paired Passage Heading ("Text 1", "Text 2", "Passage 1", "Passage 2")
+            const isPassageHeading = /^(?:\*\*|\b)?(?:Text\s*[12AB]|Passage\s*[12AB])(?:\*\*|\b)?$/i.test(textContent);
+
+            // Check if Copyright / Source attribution ("©1990 by...", "Copyright 1990...", "© 1990")
+            const isCopyright = /^(?:[©\u00A9]|\([cC]\)|Copyright|\d{4}\s+by)/i.test(textContent);
+
+            if (isPassageHeading) {
+              return (
+                <div className="mt-5 mb-2.5 first:mt-0 font-bold text-inherit text-base sm:text-lg font-sans tracking-wide">
+                  {renderChildrenWithMath(children)}
+                </div>
+              );
+            }
+
+            if (isIntro) {
+              return (
+                <div className="mb-4 text-inherit opacity-90 italic font-serif leading-relaxed text-base md:text-lg font-normal tracking-normal">
+                  {renderChildrenWithMath(children)}
+                </div>
+              );
+            }
+
+            if (isCopyright) {
+              return (
+                <div className="mt-5 pt-3 border-t border-slate-300 dark:border-slate-700 text-xs font-sans text-inherit opacity-75 italic">
+                  {renderChildrenWithMath(children)}
+                </div>
+              );
+            }
+
+            return (
+              <div className="mb-4 sm:mb-5 last:mb-0 leading-relaxed font-serif text-inherit text-base md:text-lg font-normal tracking-normal">
+                {renderChildrenWithMath(children)}
+              </div>
+            );
+          },
           u: ({ children }) => (
             <span className="underline decoration-solid decoration-2 underline-offset-4 decoration-current font-normal text-inherit inline">
               {renderChildrenWithMath(children)}
@@ -148,19 +198,19 @@ export default function MarkdownRenderer({
           ),
           // SAT Styled Table Components
           table: ({ children }) => (
-            <div className="my-4 w-full overflow-x-auto rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xs">
-              <table className="w-full text-left text-sm border-collapse font-sans text-slate-900 dark:text-slate-100">
+            <div className="my-4 w-full overflow-x-auto rounded-xl border border-slate-300 dark:border-slate-700 bg-white/90 dark:bg-slate-900/90 shadow-xs">
+              <table className="w-full text-left text-sm border-collapse font-sans text-inherit">
                 {children}
               </table>
             </div>
           ),
           thead: ({ children }) => (
-            <thead className="bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white font-extrabold border-b-2 border-slate-300 dark:border-slate-700">
+            <thead className="bg-slate-100 dark:bg-slate-800 text-inherit font-extrabold border-b-2 border-slate-300 dark:border-slate-700">
               {children}
             </thead>
           ),
           tbody: ({ children }) => (
-            <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-medium">
+            <tbody className="divide-y divide-slate-200 dark:divide-slate-800 text-inherit font-medium">
               {children}
             </tbody>
           ),
@@ -170,17 +220,17 @@ export default function MarkdownRenderer({
             </tr>
           ),
           th: ({ children }) => (
-            <th className="px-4 py-2.5 font-extrabold text-slate-900 dark:text-white border-r border-slate-300 dark:border-slate-700 last:border-r-0 tracking-tight text-center sm:text-left whitespace-nowrap bg-slate-100 dark:bg-slate-800">
+            <th className="px-4 py-2.5 font-extrabold text-inherit border-r border-slate-300 dark:border-slate-700 last:border-r-0 tracking-tight text-center sm:text-left whitespace-nowrap bg-slate-100 dark:bg-slate-800">
               {renderChildrenWithMath(children)}
             </th>
           ),
           td: ({ children }) => (
-            <td className="px-4 py-2.5 text-slate-900 dark:text-slate-100 border-r border-slate-200 dark:border-slate-700 last:border-r-0 align-middle text-center sm:text-left bg-white dark:bg-slate-900 font-medium">
+            <td className="px-4 py-2.5 text-inherit border-r border-slate-200 dark:border-slate-700 last:border-r-0 align-middle text-center sm:text-left font-medium">
               {renderChildrenWithMath(children)}
             </td>
           ),
           li: ({ children }) => (
-            <li className="my-1 leading-relaxed text-inherit">
+            <li className="my-1.5 leading-relaxed text-inherit font-serif pl-1">
               {renderChildrenWithMath(children)}
             </li>
           ),
@@ -209,8 +259,8 @@ export default function MarkdownRenderer({
               {children}
             </code>
           ),
-          ul: ({ children }) => <ul className="list-disc list-inside my-2 space-y-1 text-inherit">{children}</ul>,
-          ol: ({ children }) => <ol className="list-decimal list-inside my-2 space-y-1 text-inherit">{children}</ol>,
+          ul: ({ children }) => <ul className="list-disc pl-6 my-3.5 space-y-2 text-inherit font-serif">{children}</ul>,
+          ol: ({ children }) => <ol className="list-decimal pl-6 my-3.5 space-y-2 text-inherit font-serif">{children}</ol>,
           blockquote: ({ children }) => (
             <blockquote className="border-l-4 border-blue-600 pl-3 my-2 italic font-serif text-inherit">
               {children}
