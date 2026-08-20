@@ -45,6 +45,15 @@ export function formatMathText(rawText: string): string {
   // 2. Auto line break before conclusions "所以选", "故选", "因此选"
   s = s.replace(/([^\n])\s*(所以选|故选|因此选)\s*/g, '$1\n$2 ');
 
+  // 3. Split math dollar blocks trapped around English connector words (e.g. "$g(a) = 18 and g(4)=b$" -> "$g(a) = 18$ and $g(4)=b$")
+  s = s.replace(/\$([^\$\n]+?)\$/g, (match, inner) => {
+    if (/\b(and|or|where|when|for|if)\b/i.test(inner)) {
+      let fixed = inner.replace(/\s+\b(and|or|where|when|for|if)\b\s+/gi, (m: string, word: string) => `$ ${word} $`);
+      return `$${fixed}$`;
+    }
+    return match;
+  });
+
   return s;
 }
 

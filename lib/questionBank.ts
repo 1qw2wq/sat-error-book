@@ -267,7 +267,19 @@ export function transformRawToBluebookQuestion(
 
   // Extract diagram/graph image for the question stem
   let graphUrl: string | undefined = undefined;
-  if (has5GraphChoices && Array.isArray(raw.graphs)) {
+  let finalExplanation = raw.explanations;
+
+  // Check if raw.graphs is actually an answer solution image exported without text explanations
+  const isSolutionGraphImage =
+    (!raw.explanations || raw.explanations === null || raw.explanations.trim() === '') &&
+    Array.isArray(raw.graphs) &&
+    raw.graphs.length === 1;
+
+  if (isSolutionGraphImage && raw.graphs) {
+    const imgUrl = raw.graphs[0];
+    finalExplanation = `![Detailed Solution](${imgUrl})`;
+    graphUrl = undefined;
+  } else if (has5GraphChoices && Array.isArray(raw.graphs)) {
     graphUrl = raw.graphs[0];
   } else if (!has4GraphChoices && raw.graphs) {
     if (Array.isArray(raw.graphs) && raw.graphs.length > 0) {
@@ -311,7 +323,7 @@ export function transformRawToBluebookQuestion(
     isGridIn,
     imageDataUrl: graphUrl,
     graphData: graphUrl ? { hasGraph: true, croppedGraphUrl: graphUrl } : undefined,
-    explanation: raw.explanations,
+    explanation: finalExplanation,
     subject: raw.section === 'Reading and Writing' ? 'Reading & Writing' : 'Math',
     subTopic,
     mistakeType: 'Concept Gap',
@@ -345,7 +357,19 @@ export function transformRawToErrorItem(
 
   // Extract graph image (only if not 4-choice images)
   let graphUrl: string | undefined = undefined;
-  if (has5GraphChoices && Array.isArray(raw.graphs)) {
+  let finalExplanation = raw.explanations;
+
+  // Check if raw.graphs is actually an answer solution image exported without text explanations
+  const isSolutionGraphImage =
+    (!raw.explanations || raw.explanations === null || raw.explanations.trim() === '') &&
+    Array.isArray(raw.graphs) &&
+    raw.graphs.length === 1;
+
+  if (isSolutionGraphImage && raw.graphs) {
+    const imgUrl = raw.graphs[0];
+    finalExplanation = `![Detailed Solution](${imgUrl})`;
+    graphUrl = undefined;
+  } else if (has5GraphChoices && Array.isArray(raw.graphs)) {
     graphUrl = raw.graphs[0];
   } else if (!has4GraphChoices && raw.graphs) {
     if (Array.isArray(raw.graphs) && raw.graphs.length > 0) {
@@ -398,7 +422,7 @@ export function transformRawToErrorItem(
     answerChoices: answerChoices.filter(c => c.text.length > 0),
     correctAnswer: normalizeAnswer(raw.answers),
     aiTakeaway,
-    explanation: raw.explanations || 'Official explanation from SAT Question Bank.',
+    explanation: finalExplanation || 'Official explanation from SAT Question Bank.',
     imageDataUrl: graphUrl,
     graphData: graphUrl ? { hasGraph: true, croppedGraphUrl: graphUrl } : undefined,
     userNotes: userNotes || `Added from Question Bank: ${raw.exam_name} (Q#${raw.question_no})`,

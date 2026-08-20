@@ -110,7 +110,7 @@ export function highlightTextNodes(
         } else if (color === 'pink') {
           styleClass = 'bg-[#fbcfe8] text-slate-900 border-b-2 border-pink-400 font-normal px-0.5 rounded-2xs shadow-2xs';
         } else if (color === 'underline') {
-          styleClass = 'underline decoration-dashed decoration-2 decoration-black dark:decoration-white underline-offset-4 font-normal text-inherit px-0.5';
+          styleClass = 'underline decoration-dashed decoration-2 decoration-current underline-offset-4 font-normal text-inherit px-0.5';
         }
 
         return (
@@ -159,7 +159,7 @@ function renderFormattedProseLeaves(
         return (
           <span
             key={`u-${baseKey}-${tIdx}`}
-            className="underline decoration-solid decoration-2 underline-offset-4 decoration-black dark:decoration-white font-normal text-inherit inline"
+            className="underline decoration-solid decoration-2 underline-offset-4 decoration-current font-normal text-inherit inline"
           >
             {renderFormattedProseLeaves(inner, baseKey * 100 + tIdx, highlights, onHighlightClick)}
           </span>
@@ -171,7 +171,7 @@ function renderFormattedProseLeaves(
         return (
           <span
             key={`u-latex-${baseKey}-${tIdx}`}
-            className="underline decoration-solid decoration-2 underline-offset-4 decoration-black dark:decoration-white font-normal text-inherit inline"
+            className="underline decoration-solid decoration-2 underline-offset-4 decoration-current font-normal text-inherit inline"
           >
             {renderFormattedProseLeaves(inner, baseKey * 100 + tIdx, highlights, onHighlightClick)}
           </span>

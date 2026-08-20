@@ -864,8 +864,11 @@ export default function BluebookTestShell({
           -webkit-text-fill-color: #000000 !important;
         }
         .bluebook-test-container u,
+        .bluebook-test-container ins,
         .bluebook-prompt-content u,
-        .bluebook-passage-content u {
+        .bluebook-prompt-content ins,
+        .bluebook-passage-content u,
+        .bluebook-passage-content ins {
           text-decoration-color: #000000 !important;
           color: inherit !important;
         }
