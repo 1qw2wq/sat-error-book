@@ -1,66 +1,107 @@
-import { RawSATQuestion, SATExamSummary, SATErrorItem, AnswerChoice } from '@/types/sat';
+import { RawSATQuestion, SATExamSummary, SATErrorItem, AnswerChoice, GraphData } from '@/types/sat';
 import { BluebookQuestionItem } from '@/components/BluebookTestShell';
-import { formatMathText, formatMathChoice } from '@/lib/mathFormatter';
+import { formatMathText, formatMathChoice, sanitizeSatText } from '@/lib/mathFormatter';
 
 export type { BluebookQuestionItem };
 
 /**
- * Automatically restores missing <u>...</u> tags for questions mentioning underlined portions/sentences.
+ * Automatically restores missing <u>...</u> tags for questions mentioning underlined portions.
  */
 export function restoreUnderline(
   questionText: string,
   explanation?: string
 ): string {
-  if (!questionText || /<u[\s>]|\\underline|<ins[\s>]/i.test(questionText)) {
-    return questionText;
+  if (!questionText) return '';
+  const normalized = sanitizeSatText(questionText);
+
+  // If text already has valid underline tags, return directly
+  if (/<u[^>]*>[\s\S]*?<\/u>|\\underline|<ins[^>]*>/i.test(normalized)) {
+    return normalized;
   }
 
   // Only run if the question explicitly refers to an underlined element
-  if (!/underlined/i.test(questionText)) {
-    return questionText;
+  if (!/(?:underlined|underline|underlining)/i.test(normalized)) {
+    return normalized;
   }
 
   const expl = explanation || '';
 
+  // Special Case A: Two-underlined questions (e.g. Alabaster poem, Cave formations)
+  if (/alabaster box/i.test(normalized) && /is my heart/i.test(normalized)) {
+    let res = normalized;
+    const line1 = 'Like this alabaster box whose art';
+    const line1Alt = 'this alabaster box whose art';
+    const line2 = 'is my heart';
+    if (res.includes(line1)) res = res.replace(line1, `<u>${line1}</u>`);
+    else if (res.includes(line1Alt)) res = res.replace(line1Alt, `<u>${line1Alt}</u>`);
+    if (res.includes(line2)) res = res.replace(line2, `<u>${line2}</u>`);
+    return res;
+  }
+
+  if (/Cave formations from about 7 million years ago/i.test(normalized)) {
+    let res = normalized;
+    const p1 = 'Cave formations from about 7 million years ago mainly consist of transparent columnar calcite, indicative of an underground water system regularly replenished by rainfall.';
+    const p2 = 'Cave formations younger than approximately 1 million years, however, mainly consist of branching, opaque (and sometimes colorful) material, often with more frequent growth interruptions, indicating an intermittent water supply.';
+    if (res.includes(p1)) res = res.replace(p1, `<u>${p1}</u>`);
+    if (res.includes(p2)) res = res.replace(p2, `<u>${p2}</u>`);
+    return res;
+  }
+
+  // Special Case B: Alternative-history fiction cosmonauts question (Q# 611332)
+  if (/Industrial Revolution/i.test(normalized) && /Soviet cosmonauts/i.test(normalized)) {
+    const target = 'What if India had started the Industrial Revolution? What if Soviet cosmonauts had been first to land on the moon?';
+    if (normalized.includes(target)) {
+      return normalized.replace(target, `<u>${target}</u>`);
+    }
+  }
+
+  // Special Case C: Bayeux Tapestry joining process (Q# 137104)
+  if (/Bayeux Tapestry/i.test(normalized) && /joining process/i.test(normalized)) {
+    const target = 'It’s plausible that the workshop that produced the tapestry had never produced one so large, and some researchers claim that a close examination of the joins—the places where the panels are stitched together—suggests that the workers developed and refined their joining process over the course of production.';
+    if (normalized.includes(target)) {
+      return normalized.replace(target, `<u>${target}</u>`);
+    }
+  }
+
   // 1. Direct quote extraction from explanation after 划线 / 画线
   const matchPats = [
-    /[划画]线(?:短语|部分|句|词|句子|内容|文本|主张|观点)?[\s\S]{0,60}?[“"']([^“”"'\n]{3,250})[”"']/g,
-    /“([^“”\n]{6,250})”/g,
-    /"([^"\n]{6,250})"/g,
+    /[划画]线(?:短语|部分|句|词|句子|内容|文本|主张|观点)?[\s\S]{0,50}?[“"']([^“”"'\n]{5,250})[”"']/g,
+    /“([A-Za-z][^“”\n]{6,250})”/g,
+    /"([A-Za-z][^"\n]{6,250})"/g,
   ];
 
   for (const pat of matchPats) {
     let m: RegExpExecArray | null;
     while ((m = pat.exec(expl)) !== null) {
       const cand = m[1].trim();
-      if (cand && cand.length >= 4 && questionText.includes(cand)) {
-        return questionText.replace(cand, `<u>${cand}</u>`);
+      // Candidate must contain English words and be part of normalized
+      if (cand && /[A-Za-z]{3,}/.test(cand) && cand.length >= 6 && normalized.includes(cand)) {
+        return normalized.replace(cand, `<u>${cand}</u>`);
       }
     }
   }
 
-  // Look for English sentence snippets mentioned in Chinese explanation
-  const englishSnippetPat = /([A-Za-z][A-Za-z0-9\s,.'\-\–—;:!?()]{10,200})/g;
+  // 2. English snippet pattern from explanation (at least 15 chars)
+  const englishSnippetPat = /([A-Za-z][A-Za-z0-9\s,.'\-\–—;:!?()]{14,200})/g;
   let em: RegExpExecArray | null;
   while ((em = englishSnippetPat.exec(expl)) !== null) {
     const cand = em[1].trim();
-    if (cand.length >= 15 && questionText.includes(cand)) {
-      const idx = questionText.indexOf(cand);
-      const promptMatch = questionText.match(/(?:Which (?:choice|finding|statement|quotation|sentence|idea|detail|claim)|Based on the)/i);
+    if (cand.length >= 15 && normalized.includes(cand)) {
+      const idx = normalized.indexOf(cand);
+      const promptMatch = normalized.match(/(?:Which (?:choice|finding|statement|quotation|sentence|idea|detail|claim)|Based on the|According to the)/i);
       const pIdx = promptMatch ? promptMatch.index : -1;
       if (pIdx === -1 || (pIdx !== undefined && idx < pIdx)) {
-        return questionText.replace(cand, `<u>${cand}</u>`);
+        return normalized.replace(cand, `<u>${cand}</u>`);
       }
     }
   }
 
-  // Find prompt boundary
-  const promptMatch = questionText.match(/(?:Which (?:choice|finding|statement|quotation|sentence|idea|detail|claim|example)|Based on the|According to the)/i);
-  const promptIdx = promptMatch && promptMatch.index !== undefined ? promptMatch.index : questionText.length;
+  // 3. Match by sentence position in passage
+  const promptMatch = normalized.match(/(?:Which (?:choice|finding|statement|quotation|sentence|idea|detail|claim|example)|Based on the|According to the|The student wants to|A student wants to)/i);
+  const promptIdx = promptMatch && promptMatch.index !== undefined ? promptMatch.index : normalized.length;
 
   if (promptIdx > 20) {
-    const passage = questionText.substring(0, promptIdx).trim();
-    // Split sentences
+    const passage = normalized.substring(0, promptIdx).trim();
     const sentences = passage
       .split(/(?<=[.!?])\s+(?=[A-Z“"\[0-9])/)
       .map((s) => s.trim())
@@ -68,49 +109,38 @@ export function restoreUnderline(
 
     if (sentences.length > 0) {
       if (/第一句|首句|开头/i.test(expl)) {
-        return questionText.replace(sentences[0], `<u>${sentences[0]}</u>`);
+        return normalized.replace(sentences[0], `<u>${sentences[0]}</u>`);
       }
       if (/第二句/i.test(expl) && sentences.length > 1) {
-        return questionText.replace(sentences[1], `<u>${sentences[1]}</u>`);
+        return normalized.replace(sentences[1], `<u>${sentences[1]}</u>`);
       }
       if (/第三句/i.test(expl) && sentences.length > 2) {
-        return questionText.replace(sentences[2], `<u>${sentences[2]}</u>`);
+        return normalized.replace(sentences[2], `<u>${sentences[2]}</u>`);
       }
-      if (/最后一句|末句|结尾/i.test(expl)) {
+      if (/最后一句|末句|结尾|论断|主张|观点/i.test(expl)) {
         const last = sentences[sentences.length - 1];
-        return questionText.replace(last, `<u>${last}</u>`);
+        return normalized.replace(last, `<u>${last}</u>`);
       }
       if (/倒数第二句/i.test(expl) && sentences.length > 1) {
         const pen = sentences[sentences.length - 2];
-        return questionText.replace(pen, `<u>${pen}</u>`);
+        return normalized.replace(pen, `<u>${pen}</u>`);
       }
       if (/然而|但是|不过|相反|却/i.test(expl)) {
         const transSent = sentences.find((s) =>
           /^(?:However|Yet|Nonetheless|Nevertheless|But|In contrast|On the other hand)\b/i.test(s)
         );
         if (transSent) {
-          return questionText.replace(transSent, `<u>${transSent}</u>`);
-        }
-      }
-      if (/同样|正如|类似|不仅/i.test(expl)) {
-        const transSent = sentences.find((s) =>
-          /^(?:Likewise|Similarly|In the same way|Equally|Furthermore|Moreover)\b/i.test(s)
-        );
-        if (transSent) {
-          return questionText.replace(transSent, `<u>${transSent}</u>`);
+          return normalized.replace(transSent, `<u>${transSent}</u>`);
         }
       }
 
-      // Check if words in explanation match a specific sentence in the stimulus
       let bestSent: string | null = null;
       let maxOverlap = 0;
       for (const sent of sentences) {
         const words = sent.toLowerCase().match(/\b[a-z]{4,}\b/g) || [];
         let score = 0;
         for (const w of words) {
-          if (expl.toLowerCase().includes(w)) {
-            score++;
-          }
+          if (expl.toLowerCase().includes(w)) score++;
         }
         if (score > maxOverlap) {
           maxOverlap = score;
@@ -119,18 +149,17 @@ export function restoreUnderline(
       }
 
       if (bestSent && maxOverlap >= 2) {
-        return questionText.replace(bestSent, `<u>${bestSent}</u>`);
+        return normalized.replace(bestSent, `<u>${bestSent}</u>`);
       }
 
-      // Default: the target is usually the last sentence or the second sentence in the stimulus
       const targetSentence = sentences.length > 1 ? sentences[sentences.length - 1] : sentences[0];
       if (targetSentence) {
-        return questionText.replace(targetSentence, `<u>${targetSentence}</u>`);
+        return normalized.replace(targetSentence, `<u>${targetSentence}</u>`);
       }
     }
   }
 
-  return questionText;
+  return normalized;
 }
 
 /**
@@ -145,58 +174,99 @@ export function splitPassageAndPrompt(
     return { questionPrompt: '' };
   }
 
-  const restoredText = restoreUnderline(questionText, explanation);
-  const cleanText = restoredText.trim();
+  let cleanText = sanitizeSatText(questionText);
+  cleanText = restoreUnderline(cleanText, explanation);
 
-  // If section is Math, format any math equations and return directly as prompt
   if (section === 'Math') {
-    const formatted = formatMathText(cleanText);
-    return { questionPrompt: formatted };
+    return { questionPrompt: formatMathText(cleanText) };
   }
 
-  // Common prompt trigger prefixes in SAT Reading & Writing (using lookahead to split passage from prompt)
-  const promptTriggers = [
-    /\n+(?=(?:Which choice|Based on the text|Based on the texts|According to the text|According to both texts|What is the main|What does the text|The author of|It can most reasonably|As used in the text|The primary purpose|Which finding|Which quotation|Which statement|Which sentence|Which idea))/i,
-    /\n+(?=(?:In the text,|In Text 1,|In Text 2,|With which of the following))/i,
-    /(?<=\.)\s+(?=(?:Which choice|Based on the text|Based on the texts|According to the text|According to both texts|What does the text|What is the main|Which finding|Which quotation|Which statement)\b)/i,
-  ];
-
-  for (const regex of promptTriggers) {
-    const parts = cleanText.split(regex);
-    if (parts.length >= 2) {
-      const passage = parts[0].trim();
-      const prompt = parts.slice(1).join('').trim();
-      if (passage.length > 20 && prompt.length > 5) {
-        return {
-          passageText: formatMathText(passage),
-          questionPrompt: formatMathText(prompt),
-        };
-      }
-    }
-  }
-
-  // Fallback: Split on last double newline if the last paragraph looks like a question
-  const doubleNewlineIdx = cleanText.lastIndexOf('\n\n');
-  if (doubleNewlineIdx !== -1) {
-    const candidatePassage = cleanText.substring(0, doubleNewlineIdx).trim();
-    const candidatePrompt = cleanText.substring(doubleNewlineIdx + 2).trim();
-    if (
-      candidatePassage.length > 20 &&
-      (candidatePrompt.includes('?') || candidatePrompt.toLowerCase().startsWith('which choice'))
-    ) {
+  // 1. Rhetorical Synthesis notes prompt check
+  const notesMatch = cleanText.match(/(?:following\s+)?notes\s*[:：][\s\S]*?(?:(?:\n\s*[*•▪‣◦⁃・∙·]\s*[^\n]+)+)/i);
+  if (notesMatch && notesMatch.index !== undefined) {
+    const endOfNotesIdx = notesMatch.index + notesMatch[0].length;
+    const passage = cleanText.substring(0, endOfNotesIdx).trim();
+    const prompt = cleanText.substring(endOfNotesIdx).trim();
+    if (passage.length > 20 && prompt.length > 5) {
       return {
-        passageText: candidatePassage,
-        questionPrompt: candidatePrompt,
+        passageText: formatMathText(passage),
+        questionPrompt: formatMathText(prompt),
       };
     }
   }
 
-  return { questionPrompt: cleanText };
+  // 2. Match standard SAT prompt patterns cleanly (even when immediately touching </u> or periods)
+  const SAT_PROMPT_PREFIXES = [
+    'The\\s+student\\s+wants',
+    'A\\s+student\\s+wants',
+    'Which\\s+choice',
+    'Which\\s+finding',
+    'Which\\s+quotation',
+    'Which\\s+statement',
+    'Which\\s+sentence',
+    'Which\\s+idea',
+    'Which\\s+detail',
+    'Which\\s+claim',
+    'Which\\s+illustration',
+    'Based\\s+on\\s+the\\s+(?:text|texts|passage|passages|table|graph|chart)',
+    'According\\s+to\\s+the\\s+(?:text|texts|passage|passages|table|speaker|author)',
+    'According\\s+to\\s+both\\s+texts',
+    'What\\s+does\\s+the\\s+(?:text|texts|speaker|author|narrator|character)',
+    'What\\s+is\\s+the\\s+(?:main|primary)',
+    'As\\s+used\\s+in\\s+(?:the\\s+text|line\\s+\\d+)',
+    'The\\s+(?:primary|main)\\s+purpose',
+    'The\\s+author(?:[\'’]s)?\\s+primary',
+    'The\\s+speaker(?:[\'’]s)?\\s+primary',
+    'The\\s+narrator\\s+indicates',
+    'In\\s+the\\s+(?:text|passage|poem|context)[,:]?',
+    'In\\s+Text\\s+[12A-B][,:]?',
+    'In\\s+Passage\\s+[12A-B][,:]?',
+  ];
+
+  const promptPattern = new RegExp(
+    '(?:\\n+|(?:[\\.\\!\\?]["”’\']?|<\\/u>|<\\/ins>)\\s*)(?=(?:' + SAT_PROMPT_PREFIXES.join('|') + ')\\b)',
+    'i'
+  );
+
+  const match = cleanText.match(promptPattern);
+  if (match && match.index !== undefined && match.index > 20) {
+    const splitIndex = match.index + match[0].length;
+
+    let passage = cleanText.substring(0, splitIndex).trim();
+    let prompt = cleanText.substring(splitIndex).trim();
+
+    // Ensure balanced underline tags
+    const openU = (passage.match(/<u\b[^>]*>/gi) || []).length;
+    const closeU = (passage.match(/<\/u>/gi) || []).length;
+    if (openU > closeU) {
+      passage += '</u>';
+    }
+
+    // Clean stray closing tags from prompt
+    prompt = prompt.replace(/^<\/(?:u|ins)>/i, '').trim();
+
+    if (passage.length > 20 && prompt.length > 5) {
+      return {
+        passageText: formatMathText(passage),
+        questionPrompt: formatMathText(prompt),
+      };
+    }
+  }
+
+  return { questionPrompt: formatMathText(cleanText) };
 }
 
 /**
- * Normalizes selections into clean choice strings
+ * Checks if a list of choices is dummy or empty (e.g. Option A, Option B, etc.)
  */
+export function isDummyChoices(choices?: AnswerChoice[] | string[] | null): boolean {
+  if (!choices || choices.length === 0) return true;
+  if (typeof choices[0] === 'string') {
+    return (choices as string[]).every((s) => !s || /^(?:Option\s+[A-Da-d]|[A-Da-d][.)\s]*)$/i.test(s.trim()));
+  }
+  return (choices as AnswerChoice[]).every((c) => !c.text || /^(?:Option\s+[A-Da-d]|[A-Da-d][.)\s]*)$/i.test(c.text.trim()));
+}
+
 export function formatSelections(
   selections: string[] | null | undefined,
   isMath = false,
@@ -207,46 +277,28 @@ export function formatSelections(
     selections.length === 0 ||
     selections.every((s) => !s || /^[A-Da-d][.)\s]*$/.test(s.trim()));
 
-  // Case 1: graphs has 4 images and selections are empty/dummy letters
   if (Array.isArray(graphs) && graphs.length === 4 && isDummySelections) {
     return graphs;
   }
-
-  // Case 2: graphs has 5 images (item 0 is stem diagram, items 1-4 are choice images)
   if (Array.isArray(graphs) && graphs.length === 5 && isDummySelections) {
     return graphs.slice(1, 5);
   }
-
-  if (!selections || !Array.isArray(selections) || selections.length === 0) {
-    return [];
-  }
-
-  // If choices are dummy placeholders like ["A.", "B.", "C.", "D."], treat as empty (Grid-In numeric question)
-  if (isDummySelections) {
+  if (!selections || !Array.isArray(selections) || selections.length === 0 || isDummySelections) {
     return [];
   }
 
   return selections.map((choice) => {
     if (typeof choice !== 'string') return String(choice);
     const cleaned = choice.replace(/^[A-Da-d][.)\s]\s*/, '').trim();
-    if (isMath) {
-      return formatMathChoice(cleaned);
-    }
-    return cleaned;
+    return isMath ? formatMathChoice(cleaned) : formatMathText(cleaned);
   });
 }
 
-/**
- * Normalizes answer string (e.g., "B", "14", "3/4")
- */
 export function normalizeAnswer(ans: string | undefined): string {
   if (!ans) return '';
   return ans.trim();
 }
 
-/**
- * Converts a RawSATQuestion into a BluebookQuestionItem for BluebookTestShell
- */
 export function transformRawToBluebookQuestion(
   raw: RawSATQuestion,
   index?: number
@@ -265,19 +317,16 @@ export function transformRawToBluebookQuestion(
   const choices = formatSelections(raw.selections, isMath, raw.graphs);
   const isGridIn = raw.question_type !== 'Single Choice' || choices.length === 0;
 
-  // Extract diagram/graph image for the question stem
   let graphUrl: string | undefined = undefined;
   let finalExplanation = raw.explanations;
 
-  // Check if raw.graphs is actually an answer solution image exported without text explanations
   const isSolutionGraphImage =
     (!raw.explanations || raw.explanations === null || raw.explanations.trim() === '') &&
     Array.isArray(raw.graphs) &&
     raw.graphs.length === 1;
 
   if (isSolutionGraphImage && raw.graphs) {
-    const imgUrl = raw.graphs[0];
-    finalExplanation = `![Detailed Solution](${imgUrl})`;
+    finalExplanation = `![Detailed Solution](${raw.graphs[0]})`;
     graphUrl = undefined;
   } else if (has5GraphChoices && Array.isArray(raw.graphs)) {
     graphUrl = raw.graphs[0];
@@ -289,7 +338,6 @@ export function transformRawToBluebookQuestion(
     }
   }
 
-  // Determine subTopic from question or section
   let subTopic = raw.section;
   if (raw.section === 'Reading and Writing') {
     if (raw.question.toLowerCase().includes('conforms to the conventions of standard english')) {
@@ -331,9 +379,6 @@ export function transformRawToBluebookQuestion(
   };
 }
 
-/**
- * Converts a RawSATQuestion into an SATErrorItem so users can 1-click add to their SAT Error Book
- */
 export function transformRawToErrorItem(
   raw: RawSATQuestion,
   userNotes?: string
@@ -341,41 +386,62 @@ export function transformRawToErrorItem(
   const isMath = raw.section === 'Math';
   const { passageText, questionPrompt } = splitPassageAndPrompt(raw.question, raw.section, raw.explanations);
 
+  let parsedGraphs: string[] = [];
+  let embeddedGraphData: GraphData | undefined = undefined;
+
+  if (typeof raw.graphs === 'string' && raw.graphs.trim().length > 0) {
+    const trimmed = raw.graphs.trim();
+    if (trimmed.startsWith('{')) {
+      try {
+        embeddedGraphData = JSON.parse(trimmed);
+      } catch {
+        parsedGraphs = [trimmed];
+      }
+    } else if (trimmed.startsWith('[')) {
+      try {
+        parsedGraphs = JSON.parse(trimmed);
+      } catch {
+        parsedGraphs = [trimmed];
+      }
+    } else {
+      parsedGraphs = [trimmed];
+    }
+  } else if (Array.isArray(raw.graphs)) {
+    parsedGraphs = raw.graphs;
+  }
+
   const isDummySelections =
     !raw.selections ||
     raw.selections.length === 0 ||
     raw.selections.every((s) => !s || /^[A-Da-d][.)\s]*$/.test(s.trim()));
 
-  const has4GraphChoices = Array.isArray(raw.graphs) && raw.graphs.length === 4 && isDummySelections;
-  const has5GraphChoices = Array.isArray(raw.graphs) && raw.graphs.length === 5 && isDummySelections;
+  const has4GraphChoices = parsedGraphs.length === 4 && isDummySelections;
+  const has5GraphChoices = parsedGraphs.length === 5 && isDummySelections;
 
-  const choices = formatSelections(raw.selections, isMath, raw.graphs);
-  const answerChoices: AnswerChoice[] = ['A', 'B', 'C', 'D'].map((label, idx) => {
-    const text = choices[idx] || '';
-    return { label, text: text || `Option ${label}` };
-  });
+  const choices = formatSelections(raw.selections, isMath, parsedGraphs.length > 0 ? parsedGraphs : raw.graphs);
+  const answerChoices: AnswerChoice[] =
+    choices.length > 0
+      ? choices.map((text, idx) => ({
+          label: String.fromCharCode(65 + idx),
+          text,
+        }))
+      : [];
 
-  // Extract graph image (only if not 4-choice images)
   let graphUrl: string | undefined = undefined;
   let finalExplanation = raw.explanations;
 
-  // Check if raw.graphs is actually an answer solution image exported without text explanations
-  const isSolutionGraphImage =
-    (!raw.explanations || raw.explanations === null || raw.explanations.trim() === '') &&
-    Array.isArray(raw.graphs) &&
-    raw.graphs.length === 1;
+  if (embeddedGraphData?.croppedGraphUrl) {
+    graphUrl = embeddedGraphData.croppedGraphUrl;
+  } else {
+    const isSolutionGraphImage =
+      (!raw.explanations || raw.explanations === null || raw.explanations.trim() === '') &&
+      parsedGraphs.length === 1;
 
-  if (isSolutionGraphImage && raw.graphs) {
-    const imgUrl = raw.graphs[0];
-    finalExplanation = `![Detailed Solution](${imgUrl})`;
-    graphUrl = undefined;
-  } else if (has5GraphChoices && Array.isArray(raw.graphs)) {
-    graphUrl = raw.graphs[0];
-  } else if (!has4GraphChoices && raw.graphs) {
-    if (Array.isArray(raw.graphs) && raw.graphs.length > 0) {
-      graphUrl = raw.graphs[0];
-    } else if (typeof raw.graphs === 'string' && raw.graphs.trim().length > 0) {
-      graphUrl = raw.graphs.trim();
+    if (isSolutionGraphImage) {
+      finalExplanation = `![Detailed Solution](${parsedGraphs[0]})`;
+      graphUrl = undefined;
+    } else if (has5GraphChoices || (!has4GraphChoices && parsedGraphs.length > 0)) {
+      graphUrl = parsedGraphs[0];
     }
   }
 
@@ -411,6 +477,8 @@ export function transformRawToErrorItem(
   }
 
   const aiTakeaway = `Official SAT ${raw.exam_name} (#${raw.question_no}) — Key concept tested: ${subTopic} with difficulty level ${raw.difficulty}/10.`;
+  const fullQuestionText = raw.question?.trim() || (passageText ? `${passageText}\n\n${questionPrompt}` : questionPrompt);
+  const imagesList = parsedGraphs.length > 0 ? parsedGraphs : (graphUrl ? [graphUrl] : undefined);
 
   return {
     id: `sat_q_${raw.question_id}_${Date.now()}`,
@@ -418,13 +486,14 @@ export function transformRawToErrorItem(
     subject: raw.section === 'Reading and Writing' ? 'Reading & Writing' : 'Math',
     subTopic,
     passageText: passageText || undefined,
-    questionText: questionPrompt || raw.question,
-    answerChoices: answerChoices.filter(c => c.text.length > 0),
+    questionText: fullQuestionText,
+    answerChoices: answerChoices.filter((c) => c.text.length > 0),
     correctAnswer: normalizeAnswer(raw.answers),
     aiTakeaway,
     explanation: finalExplanation || 'Official explanation from SAT Question Bank.',
     imageDataUrl: graphUrl,
-    graphData: graphUrl ? { hasGraph: true, croppedGraphUrl: graphUrl } : undefined,
+    imageDataUrls: imagesList,
+    graphData: embeddedGraphData || (graphUrl ? { hasGraph: true, croppedGraphUrl: graphUrl } : undefined),
     userNotes: userNotes || `Added from Question Bank: ${raw.exam_name} (Q#${raw.question_no})`,
     mistakeType: 'Concept Gap',
     masteryStatus: 'Confused',
@@ -433,5 +502,68 @@ export function transformRawToErrorItem(
     reviewHistory: [],
     testSource: raw.exam_name,
     difficulty: difficultyLevel,
+  };
+}
+
+/**
+ * Repairs and restores full question text, passage, choices, answers, and explanations
+ * for an existing SATErrorItem using a matching RawSATQuestion, preserving all user notes and mastery.
+ */
+export function repairErrorItemFromRaw(
+  existing: SATErrorItem,
+  raw: RawSATQuestion
+): SATErrorItem {
+  const isMath = raw.section === 'Math';
+  const { passageText, questionPrompt } = splitPassageAndPrompt(raw.question, raw.section, raw.explanations);
+
+  let parsedGraphs: string[] = [];
+  let embeddedGraphData: GraphData | undefined = undefined;
+
+  if (typeof raw.graphs === 'string' && raw.graphs.trim().length > 0) {
+    const trimmed = raw.graphs.trim();
+    if (trimmed.startsWith('{')) {
+      try {
+        embeddedGraphData = JSON.parse(trimmed);
+      } catch {
+        parsedGraphs = [trimmed];
+      }
+    } else if (trimmed.startsWith('[')) {
+      try {
+        parsedGraphs = JSON.parse(trimmed);
+      } catch {
+        parsedGraphs = [trimmed];
+      }
+    } else {
+      parsedGraphs = [trimmed];
+    }
+  } else if (Array.isArray(raw.graphs)) {
+    parsedGraphs = raw.graphs;
+  }
+
+  const choices = formatSelections(raw.selections, isMath, parsedGraphs.length > 0 ? parsedGraphs : raw.graphs);
+  const answerChoices: AnswerChoice[] =
+    choices.length > 0
+      ? choices.map((text, idx) => ({
+          label: String.fromCharCode(65 + idx),
+          text,
+        }))
+      : [];
+
+  const fullQuestionText = raw.question?.trim() || (passageText ? `${passageText}\n\n${questionPrompt}` : questionPrompt);
+  const graphUrl = embeddedGraphData?.croppedGraphUrl || (parsedGraphs.length > 0 ? parsedGraphs[0] : undefined);
+  const imagesList = parsedGraphs.length > 0 ? parsedGraphs : (graphUrl ? [graphUrl] : undefined);
+
+  return {
+    ...existing,
+    subject: raw.section === 'Reading and Writing' ? 'Reading & Writing' : 'Math',
+    passageText: passageText || undefined,
+    questionText: fullQuestionText,
+    answerChoices: answerChoices.filter((c) => c.text.length > 0),
+    correctAnswer: normalizeAnswer(raw.answers) || existing.correctAnswer,
+    explanation: raw.explanations || existing.explanation,
+    imageDataUrl: graphUrl || existing.imageDataUrl,
+    imageDataUrls: imagesList || existing.imageDataUrls,
+    graphData: embeddedGraphData || existing.graphData || (graphUrl ? { hasGraph: true, croppedGraphUrl: graphUrl } : undefined),
+    testSource: raw.exam_name || existing.testSource,
   };
 }

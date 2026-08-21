@@ -315,6 +315,87 @@ export async function getErrorById(id: string): Promise<SATErrorItem | undefined
   return db.get('errors', id);
 }
 
+/**
+ * Restores and repairs all error items in the Error Directory by checking question ID / text against the Test Bank
+ */
+export async function syncAndRestoreErrorDirectory(): Promise<{ success: boolean; restoredCount: number; errors: SATErrorItem[] }> {
+  const db = await getDB();
+  const currentErrors = await db.getAll('errors');
+  if (currentErrors.length === 0) {
+    return { success: true, restoredCount: 0, errors: [] };
+  }
+
+  try {
+    let totalRestored = 0;
+    const finalItemsMap = new Map<string, SATErrorItem>();
+    currentErrors.forEach((item) => finalItemsMap.set(item.id, item));
+
+    // Batch items in chunks of 20 to prevent payload size limits
+    const CHUNK_SIZE = 20;
+    for (let i = 0; i < currentErrors.length; i += CHUNK_SIZE) {
+      const chunk = currentErrors.slice(i, i + CHUNK_SIZE);
+      
+      // Strip heavy base64 strings before sending to server
+      const sanitizedChunk = chunk.map((item) => {
+        const { imageDataUrl, imageDataUrls, ...cleanProps } = item;
+        return cleanProps;
+      });
+
+      const res = await fetch('/api/questions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'restore_error_items',
+          items: sanitizedChunk,
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
+      if (data.success && Array.isArray(data.items)) {
+        totalRestored += data.restoredCount || 0;
+        for (const returnedItem of data.items) {
+          const original = finalItemsMap.get(returnedItem.id);
+          if (original) {
+            // Merge restored content while strictly preserving local user images & state
+            const merged: SATErrorItem = {
+              ...original,
+              ...returnedItem,
+              imageDataUrl: original.imageDataUrl,
+              imageDataUrls: original.imageDataUrls,
+              userNotes: returnedItem.userNotes || original.userNotes,
+              masteryStatus: original.masteryStatus,
+              mistakeType: original.mistakeType,
+              createdAt: original.createdAt,
+              updatedAt: new Date().toISOString(),
+            };
+            finalItemsMap.set(returnedItem.id, merged);
+          }
+        }
+      }
+    }
+
+    const updatedList = Array.from(finalItemsMap.values());
+    const tx = db.transaction('errors', 'readwrite');
+    for (const item of updatedList) {
+      await tx.store.put(item);
+    }
+    await tx.done;
+
+    return {
+      success: true,
+      restoredCount: totalRestored,
+      errors: updatedList.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
+    };
+  } catch (err) {
+    console.error('Failed to sync and restore error directory:', err);
+    throw err;
+  }
+}
+
 export async function saveError(error: SATErrorItem): Promise<void> {
   const db = await getDB();
   await db.put('errors', error);

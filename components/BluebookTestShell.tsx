@@ -37,7 +37,7 @@ import GraphRenderer from './GraphRenderer';
 import MarkdownRenderer from './MarkdownRenderer';
 import { gradeStudentResponse, evaluateSATQuestionAnswer } from '../lib/answerGrading';
 import { saveError, saveTestSession, deleteSavedTestSession } from '../lib/db';
-import { transformRawToErrorItem } from '../lib/questionBank';
+import { transformRawToErrorItem, isDummyChoices } from '../lib/questionBank';
 import { SATErrorItem, RawSATQuestion, SavedTestSession } from '../types/sat';
 
 export interface BluebookQuestionItem {
@@ -898,13 +898,17 @@ export default function BluebookTestShell({
         const item = transformRawToErrorItem(q.rawQuestion, 'Saved from Practice & Learn Drill');
         await saveError(item);
       } else {
+        const fullQText = q.passageText && !q.questionPrompt.includes(q.passageText.slice(0, 30))
+          ? `${q.passageText}\n\n${q.questionPrompt}`
+          : q.questionPrompt;
+
         const errorItem: SATErrorItem = {
           id: `err-${Date.now()}-${qIdx}`,
           createdAt: new Date().toISOString(),
           subject: (q.subject === 'Math' ? 'Math' : 'Reading & Writing') as any,
           subTopic: q.subTopic || (q.subject === 'Math' ? 'Algebra' : 'Information & Ideas'),
           passageText: q.passageText,
-          questionText: q.questionPrompt,
+          questionText: fullQText,
           answerChoices: (q.choices || []).map((text, idx) => ({
             label: String.fromCharCode(65 + idx),
             text,
@@ -912,6 +916,8 @@ export default function BluebookTestShell({
           correctAnswer: q.correctAnswer || 'A',
           aiTakeaway: 'Practice drill review item',
           explanation: q.explanation || '',
+          imageDataUrl: q.imageDataUrl,
+          graphData: q.graphData,
           mistakeType: 'Concept Gap',
           masteryStatus: 'Learning',
           masteryLevel: 1,
@@ -1256,7 +1262,23 @@ export default function BluebookTestShell({
         {/* Main Question & Passage Work Area */}
         <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
           {(() => {
-            const hasPassage = Boolean(currentQ.passageText && currentQ.passageText.trim().length > 0);
+            let displayPassage = currentQ.passageText || '';
+            let displayPrompt = currentQ.questionPrompt || '';
+
+            // Defensive split: if passageText contains "The student wants to..." or "A student wants to...", move it to questionPrompt
+            if (displayPassage) {
+              const studentWantsMatch = displayPassage.match(/(\n+|(?:(?<=\.)\s+))((?:The|A)\s+student\s+wants\b[\s\S]*)$/i);
+              if (studentWantsMatch && studentWantsMatch.index !== undefined) {
+                const passageClean = displayPassage.substring(0, studentWantsMatch.index).trim();
+                const promptPrefix = studentWantsMatch[2].trim();
+                if (passageClean.length > 15) {
+                  displayPassage = passageClean;
+                  displayPrompt = `${promptPrefix}\n\n${displayPrompt}`;
+                }
+              }
+            }
+
+            const hasPassage = Boolean(displayPassage && displayPassage.trim().length > 0);
 
             const questionStemJsx = (
           <div className="space-y-6 animate-in fade-in duration-150">
@@ -1338,14 +1360,15 @@ export default function BluebookTestShell({
               onTouchEnd={handleTextSelect}
             >
               <MarkdownRenderer
-                content={currentQ.questionPrompt}
+                content={displayPrompt}
                 highlights={currentQuestionHighlights}
                 onHighlightClick={handleHighlightClick}
+                explanation={currentQ.explanation}
               />
             </div>
 
             {/* Multiple Choice Options or Grid-in Response */}
-            {currentQ.choices && currentQ.choices.length > 0 ? (
+            {currentQ.choices && currentQ.choices.length > 0 && !isDummyChoices(currentQ.choices) ? (
               <div className="space-y-4 pt-3 w-full">
                 {currentQ.choices.map((choiceText, cIdx) => {
                   const choiceLetter = choiceLabels[cIdx] || String.fromCharCode(65 + cIdx);
@@ -1583,9 +1606,10 @@ export default function BluebookTestShell({
                         onTouchEnd={handleTextSelect}
                       >
                         <MarkdownRenderer
-                          content={currentQ.passageText || ''}
+                          content={displayPassage || ''}
                           highlights={currentQuestionHighlights}
                           onHighlightClick={handleHighlightClick}
+                          explanation={currentQ.explanation}
                         />
                       </div>
                     </div>

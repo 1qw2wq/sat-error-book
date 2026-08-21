@@ -816,7 +816,7 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
         questionNo: raw.question_no || idx + 1,
         section: raw.section,
         subTopic: raw.category || raw.section,
-        questionPrompt: parsed.questionPrompt || raw.question,
+        questionPrompt: parsed.questionPrompt,
         passageText: parsed.passageText,
         userAnswer: userAns,
         correctAnswer: raw.answers,
@@ -2134,10 +2134,27 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
                       </div>
                     )}
 
-                    {/* Question Content with MathRenderer */}
-                    <div className="text-base text-slate-900 dark:text-slate-100 leading-relaxed font-serif my-2 p-3 sm:p-4 rounded-xl bg-slate-50/70 dark:bg-slate-900/40 border border-slate-200/80 dark:border-slate-800 overflow-x-auto min-w-0 w-full">
-                      <MathRenderer text={restoreUnderline(q.question, q.explanations)} />
-                    </div>
+                    {/* Question Content with MathRenderer / Split Layout */}
+                    {(() => {
+                      const split = splitPassageAndPrompt(q.question, q.section, q.explanations);
+                      if (split.passageText && split.questionPrompt) {
+                        return (
+                          <div className="space-y-3 my-2 w-full">
+                            <div className="text-base text-slate-900 dark:text-slate-100 leading-relaxed font-serif p-3.5 sm:p-4.5 rounded-xl bg-slate-50/70 dark:bg-slate-900/40 border border-slate-200/80 dark:border-slate-800 overflow-x-auto min-w-0 w-full">
+                              <MathRenderer text={split.passageText} />
+                            </div>
+                            <div className="text-base font-medium text-slate-900 dark:text-slate-100 leading-relaxed font-serif p-3 sm:p-3.5 rounded-xl bg-indigo-50/40 dark:bg-indigo-950/20 border border-indigo-100/80 dark:border-indigo-900/40 overflow-x-auto min-w-0 w-full">
+                              <MathRenderer text={split.questionPrompt} />
+                            </div>
+                          </div>
+                        );
+                      }
+                      return (
+                        <div className="text-base text-slate-900 dark:text-slate-100 leading-relaxed font-serif my-2 p-3 sm:p-4 rounded-xl bg-slate-50/70 dark:bg-slate-900/40 border border-slate-200/80 dark:border-slate-800 overflow-x-auto min-w-0 w-full">
+                          <MathRenderer text={restoreUnderline(q.question, q.explanations)} />
+                        </div>
+                      );
+                    })()}
 
                     {/* Choices */}
                     {choices.length > 0 && (

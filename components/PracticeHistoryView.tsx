@@ -228,6 +228,10 @@ export default function PracticeHistoryView({
   const handleAddQuestionToErrorBook = async (qSummary: HistoryQuestionSummary) => {
     try {
       const fallbackId = typeof qSummary.questionId === 'number' ? qSummary.questionId : (qSummary.questionNo || 1) * 10000;
+      const fullQ = qSummary.passageText && !qSummary.questionPrompt.includes(qSummary.passageText.slice(0, 30))
+        ? `${qSummary.passageText}\n\n${qSummary.questionPrompt}`
+        : qSummary.questionPrompt;
+
       const rawFallback: RawSATQuestion = {
         question_id: fallbackId,
         question_no: qSummary.questionNo || 1,
@@ -235,7 +239,7 @@ export default function PracticeHistoryView({
         difficulty: qSummary.difficulty || 6,
         section: qSummary.section || 'Reading and Writing',
         module: 'Module 1',
-        question: (qSummary.passageText ? `${qSummary.passageText}\n\n` : '') + qSummary.questionPrompt,
+        question: fullQ,
         selections: qSummary.choices || [],
         answers: qSummary.correctAnswer,
         graphs: qSummary.graphData ? JSON.stringify(qSummary.graphData) : null,
@@ -264,6 +268,10 @@ export default function PracticeHistoryView({
     try {
       const missed = selectedReviewItem.questionSummaries.filter((q) => !q.isCorrect);
       for (const qSummary of missed) {
+        const fullQ = qSummary.passageText && !qSummary.questionPrompt.includes(qSummary.passageText.slice(0, 30))
+          ? `${qSummary.passageText}\n\n${qSummary.questionPrompt}`
+          : qSummary.questionPrompt;
+
         const rawFallback: RawSATQuestion = {
           question_id: typeof qSummary.questionId === 'number' ? qSummary.questionId : Date.now() + Math.random(),
           question_no: qSummary.questionNo || 1,
@@ -271,7 +279,7 @@ export default function PracticeHistoryView({
           difficulty: qSummary.difficulty || 6,
           section: qSummary.section || 'Reading and Writing',
           module: 'Module 1',
-          question: (qSummary.passageText ? `${qSummary.passageText}\n\n` : '') + qSummary.questionPrompt,
+          question: fullQ,
           selections: qSummary.choices || [],
           answers: qSummary.correctAnswer,
           graphs: qSummary.graphData ? JSON.stringify(qSummary.graphData) : null,

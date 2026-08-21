@@ -16,9 +16,10 @@ import {
   Tag,
   ImageIcon,
   Brain,
+  RefreshCw,
 } from 'lucide-react';
 import { SATErrorItem, SATSubject, MasteryStatus } from '@/types/sat';
-import { deleteError, exportFullDatabase, importFullDatabase, recordReview } from '@/lib/db';
+import { deleteError, exportFullDatabase, importFullDatabase, recordReview, syncAndRestoreErrorDirectory } from '@/lib/db';
 import MathRenderer from './MathRenderer';
 
 interface ErrorListTableProps {
@@ -39,7 +40,31 @@ export default function ErrorListTable({
   const [masteryFilter, setMasteryFilter] = useState<string>('All');
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [importStatus, setImportStatus] = useState<string | null>(null);
+  const [isRestoring, setIsRestoring] = useState<boolean>(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const handleRestoreFromBank = async () => {
+    if (isRestoring) return;
+    setIsRestoring(true);
+    setImportStatus('Syncing & restoring full question passages, choices, and answers from SAT Question Bank...');
+    try {
+      const res = await syncAndRestoreErrorDirectory();
+      if (res.success) {
+        setImportStatus(`Successfully restored & formatted ${res.restoredCount} question(s) with full passages, choices, and correct answers!`);
+        onRefreshData();
+      } else {
+        setImportStatus('Question synchronization complete. All items verified.');
+      }
+    } catch (err) {
+      console.error('Error during question restoration:', err);
+      setImportStatus('Failed to restore questions from question bank.');
+    } finally {
+      setIsRestoring(false);
+      setTimeout(() => {
+        setImportStatus(null);
+      }, 7000);
+    }
+  };
 
   // Filter items
   const filteredErrors = errors.filter((item) => {
@@ -169,6 +194,18 @@ export default function ErrorListTable({
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
+            {/* Restore / Fix from Test Bank button */}
+            <button
+              type="button"
+              onClick={handleRestoreFromBank}
+              disabled={isRestoring}
+              title="Restore full passage, questions, choices and underlines by checking Question IDs against official bank"
+              className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 text-xs font-semibold hover:bg-indigo-100 dark:hover:bg-indigo-900/80 transition-colors disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 ${isRestoring ? 'animate-spin' : ''}`} />
+              <span>{isRestoring ? 'Restoring...' : 'Restore from Bank'}</span>
+            </button>
+
             {/* Import Backup button */}
             <button
               type="button"
@@ -325,8 +362,17 @@ export default function ErrorListTable({
                 </div>
 
                 {/* Question Preview */}
-                <div className="text-sm font-semibold text-slate-900 dark:text-slate-100 line-clamp-2 leading-snug">
-                  <MathRenderer text={item.questionText} />
+                <div className="text-sm font-semibold text-slate-900 dark:text-slate-100 line-clamp-3 leading-snug">
+                  <MathRenderer
+                    text={
+                      item.passageText &&
+                      item.passageText.trim().length > 0 &&
+                      item.passageText.trim().toLowerCase() !== 'none' &&
+                      !item.questionText.includes(item.passageText.trim().slice(0, 25))
+                        ? `${item.passageText}\n\n${item.questionText}`
+                        : item.questionText
+                    }
+                  />
                 </div>
 
                 {/* AI Takeaway snippet */}

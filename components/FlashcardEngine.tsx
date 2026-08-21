@@ -28,6 +28,7 @@ import {
 import { SATErrorItem, SATSubject, MasteryStatus } from '@/types/sat';
 import { recordReview } from '@/lib/db';
 import { gradeStudentResponse } from '@/lib/answerGrading';
+import { isDummyChoices } from '@/lib/questionBank';
 import MathRenderer from './MathRenderer';
 import GraphRenderer from './GraphRenderer';
 import MarkdownRenderer from './MarkdownRenderer';
@@ -475,7 +476,7 @@ export default function FlashcardEngine({
               </div>
 
               {/* Answer Choices Grid OR Non-Selection Student-Produced Response */}
-              {currentItem.answerChoices && currentItem.answerChoices.length > 0 ? (
+              {currentItem.answerChoices && currentItem.answerChoices.length > 0 && !isDummyChoices(currentItem.answerChoices) ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {currentItem.answerChoices.map((choice) => {
                     const isCorrect = choice.label === currentItem.correctAnswer;

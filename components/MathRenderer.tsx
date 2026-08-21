@@ -2,8 +2,7 @@
 
 import React, { useMemo } from 'react';
 import katex from 'katex';
-import { formatMathText } from '@/lib/mathFormatter';
-import { restoreUnderline } from '@/lib/questionBank';
+import { formatMathText, sanitizeSatText } from '@/lib/mathFormatter';
 
 export interface HighlightItem {
   id: string;
@@ -21,20 +20,16 @@ interface MathRendererProps {
   explanation?: string;
 }
 
-// Check if a string is an image URL
-function isPureImageUrl(str: string): boolean {
+export function isPureImageUrl(str: string): boolean {
   if (!str) return false;
   const s = str.trim();
-  if (/^https?:\/\/[^\s]+(?:\.(?:png|jpg|jpeg|gif|webp|svg|bmp)(?:\?.*)?|\/upload\/image\/[^\s]+)$/i.test(s)) {
-    return true;
-  }
-  if (/^data:image\/(?:png|jpeg|jpg|webp|gif|svg\+xml);base64,/i.test(s)) {
-    return true;
-  }
+  if (/^!\[.*?\]\([^\)]+\)$/i.test(s)) return true;
+  if (/^data:image\/[a-zA-Z0-9\+\-]+;base64,/i.test(s)) return true;
+  if (/^blob:/i.test(s)) return true;
+  if (/^(?:https?:\/\/|\/|assets\/)[^\s]+$/i.test(s)) return true;
   return false;
 }
 
-// Normalize strings for matching across smart quotes, dashes, and whitespace variations
 function normalizeText(str: string): string {
   return str
     .replace(/[\u2018\u2019']/g, "'")
@@ -53,12 +48,12 @@ export function highlightTextNodes(
   highlights?: HighlightItem[],
   onHighlightClick?: (highlight: HighlightItem, e: React.MouseEvent) => void
 ): React.ReactNode {
-  const cleanText = text ? text.replace(/\\(\$)/g, '$1') : text;
+  // Convert escaped currency \$ back to $ and strip stray backslashes for clean UI display
+  const cleanText = text ? text.replace(/\\(\$)/g, '$1').replace(/\\(?![a-zA-Z])/g, '') : text;
   if (!cleanText || !highlights || highlights.length === 0) return cleanText;
 
   const normTarget = normalizeText(cleanText).toLowerCase();
 
-  // Find highlights that appear in this text block
   const matchedHighlights: { item: HighlightItem; phrase: string }[] = [];
 
   highlights.forEach((h) => {
@@ -66,18 +61,15 @@ export function highlightTextNodes(
     const cleanSel = normalizeText(h.selectedText);
     if (!cleanSel) return;
 
-    // Only match exact full selection phrase that appears in this text block
     if (normTarget.includes(cleanSel.toLowerCase())) {
       matchedHighlights.push({ item: h, phrase: cleanSel });
     }
   });
 
-  if (matchedHighlights.length === 0) return text;
+  if (matchedHighlights.length === 0) return cleanText;
 
-  // Sort matched phrases by length descending
   matchedHighlights.sort((a, b) => b.phrase.length - a.phrase.length);
 
-  // Deduplicate phrases
   const uniquePhrases = Array.from(new Set(matchedHighlights.map((m) => m.phrase)));
 
   const regexPatterns = uniquePhrases.map((phrase) => {
@@ -86,11 +78,11 @@ export function highlightTextNodes(
   });
 
   const masterPattern = regexPatterns.join('|');
-  if (!masterPattern) return text;
+  if (!masterPattern) return cleanText;
 
   try {
     const regex = new RegExp(`(${masterPattern})`, 'gi');
-    const parts = text.split(regex);
+    const parts = cleanText.split(regex);
 
     return parts.map((part, idx) => {
       if (!part) return null;
@@ -136,7 +128,7 @@ export function highlightTextNodes(
       return part;
     });
   } catch {
-    return text;
+    return cleanText;
   }
 }
 
@@ -146,7 +138,6 @@ function renderFormattedProseLeaves(
   highlights?: HighlightItem[],
   onHighlightClick?: (highlight: HighlightItem, e: React.MouseEvent) => void
 ) {
-  // Support HTML underline <u...>, <ins...>, \underline{...}, <b>...</b>, <strong>...</strong>, and Markdown **...** / *...* formatting in prose
   const formatTagRegex = /(<u[^>]*>[\s\S]*?<\/u>|<ins[^>]*>[\s\S]*?<\/ins>|\\underline\{[^\}]*\}|<strong[^>]*>[\s\S]*?<\/strong>|<b[^>]*>[\s\S]*?<\/b>|\*\*[\s\S]*?\*\*|\*[^\*]+?\*|_[^_]+?_|_____+\b)/gi;
   const tagParts = prose.split(formatTagRegex);
 
@@ -231,7 +222,6 @@ function renderInlineProse(
 ) {
   let cleanProse = prose;
 
-  // Clean raw markdown headers if present at the start of the line (e.g., "### Context Sentence" -> "Context Sentence")
   if (/^#{1,6}\s+/.test(cleanProse)) {
     const headingText = cleanProse.replace(/^#{1,6}\s+/, '');
     return (
@@ -241,7 +231,6 @@ function renderInlineProse(
     );
   }
 
-  // Clean raw markdown blockquote if present at start of line (e.g., "> \"text\"")
   if (/^>\s+/.test(cleanProse)) {
     const quoteText = cleanProse.replace(/^>\s+/, '');
     return (
@@ -251,9 +240,9 @@ function renderInlineProse(
     );
   }
 
-  // Render bullet point line cleanly if starting with •, \u2022, ▪, ·, or standalone * (never **)
   if (/^(?:[•\u2022▪\u25AA‣\u2023◦\u25E6⁃\u2043・\u30FB∙\u2219·\u00B7]|\*(?!\*))\s*/.test(cleanProse)) {
-    const bulletText = cleanProse.replace(/^(?:[•\u2022▪\u25AA‣\u2023◦\u25E6⁃\u2043・\u30FB∙\u2219·\u00B7]|\*(?!\*))\s*/, '');
+    const bulletText = cleanProse.replace(/^(?:[•\u2022▪\u25AA‣\u2023◦\u25E6⁃\u2043・\u30FB∙\u2219·\u00B7]|\*(?!\*)|\s)+/, '');
+    if (!bulletText.trim()) return null;
     return (
       <span key={`bullet-${baseKey}`} className="flex items-start gap-2.5 my-1.5 pl-1 leading-relaxed text-inherit font-serif">
         <span className="inline-block w-1.5 h-1.5 rounded-full bg-slate-700 dark:bg-slate-300 mt-2 shrink-0 select-none" />
@@ -264,37 +253,39 @@ function renderInlineProse(
     );
   }
 
-  // Support Markdown Images ![alt](url) or embedded pure image URLs
-  const imgRegex = /(!\[.*?\]\(https?:\/\/[^\s\)]+\)|https?:\/\/[^\s]+(?:\.(?:png|jpg|jpeg|gif|webp|svg)|\/upload\/image\/[^\s]+))/gi;
+  const imgRegex = /(!\[.*?\]\((?:https?:\/\/[^\s\)]+|data:image\/[a-zA-Z0-9\+\-]+;base64,[^\s\)]+|\/[^\s\)]+)\)|data:image\/[a-zA-Z0-9\+\-]+;base64,[A-Za-z0-9+/=]+|https?:\/\/[^\s]+|\/[^\s]+\.(?:png|jpg|jpeg|gif|webp|svg|bmp)(?:\?[^\s]*)?)/gi;
   if (imgRegex.test(cleanProse)) {
     const imgParts = cleanProse.split(imgRegex);
     return (
       <span key={`img-group-${baseKey}`} className="inline">
         {imgParts.map((subPart, sIdx) => {
           if (!subPart) return null;
-          if (/^!\[(.*?)\]\((https?:\/\/[^\s\)]+)\)$/i.test(subPart)) {
-            const m = subPart.match(/^!\[(.*?)\]\((https?:\/\/[^\s\)]+)\)$/i);
-            const alt = m?.[1] || 'SAT Diagram';
-            const url = m?.[2] || '';
+          const mdMatch = subPart.match(/^!\[(.*?)\]\((.*?)\)$/i);
+          if (mdMatch) {
+            const alt = mdMatch[1] || 'SAT Diagram';
+            const url = mdMatch[2] || '';
             return (
               <img
                 key={`md-img-${baseKey}-${sIdx}`}
                 src={url}
                 alt={alt}
                 referrerPolicy="no-referrer"
-                className="max-h-52 object-contain rounded-xl border border-slate-200 dark:border-slate-700 bg-white p-2 my-2 inline-block"
+                className="max-h-56 max-w-full object-contain rounded-xl border border-slate-200 dark:border-slate-700 bg-white p-2 my-2 inline-block"
                 loading="lazy"
               />
             );
           }
           if (isPureImageUrl(subPart)) {
+            const imgSrc = subPart.startsWith('![')
+              ? subPart.replace(/^!\[.*?\]\((.*?)\)$/, '$1').trim()
+              : subPart.trim();
             return (
               <img
                 key={`url-img-${baseKey}-${sIdx}`}
-                src={subPart}
+                src={imgSrc}
                 alt="SAT Diagram"
                 referrerPolicy="no-referrer"
-                className="max-h-52 object-contain rounded-xl border border-slate-200 dark:border-slate-700 bg-white p-2 my-2 inline-block"
+                className="max-h-56 max-w-full object-contain rounded-xl border border-slate-200 dark:border-slate-700 bg-white p-2 my-2 inline-block"
                 loading="lazy"
               />
             );
@@ -314,18 +305,19 @@ function renderProseWithFormatting(
   highlights?: HighlightItem[],
   onHighlightClick?: (highlight: HighlightItem, e: React.MouseEvent) => void
 ) {
-  // Support newlines first if present
   if (prose.includes('\n')) {
     const lines = prose.split('\n');
     return (
-      <span className="block space-y-1">
+      <span className="block space-y-1.5 my-1">
         {lines.map((line, lIdx) => {
           const trimmed = line.trim();
-          if (!trimmed) return null;
+          if (!trimmed) {
+            return <span key={`empty-${baseKey}-${lIdx}`} className="block h-2" />;
+          }
           return (
-            <React.Fragment key={`line-${baseKey}-${lIdx}`}>
+            <span key={`line-${baseKey}-${lIdx}`} className="block leading-relaxed">
               {renderInlineProse(trimmed, baseKey * 100 + lIdx, highlights, onHighlightClick)}
-            </React.Fragment>
+            </span>
           );
         })}
       </span>
@@ -335,18 +327,13 @@ function renderProseWithFormatting(
   return renderInlineProse(prose, baseKey, highlights, onHighlightClick);
 }
 
-/**
- * Converts MathML XML markup into clean LaTeX for KaTeX rendering with robust entity & symbol decoding.
- */
 export function convertMathmlToLatex(mathml: string): string {
   if (!mathml) return '';
   let s = mathml;
 
-  // Pre-clean inline HTML formatting tags & broken wrappers inside MathML XML exported by College Board
   s = s.replace(/<br\s*\/?>/gi, ' ')
        .replace(/<\/?(span|strong|em|b|i|u|div|p)[^>]*>/gi, '');
 
-  // Fix malformed opening math tags like `<math>xmlns="..." display="..."&gt;`
   s = s.replace(/^<math[^>]*&gt;/i, '<math>')
        .replace(/^<math\s*xmlns[^>]*>/i, '<math>')
        .replace(/&gt;/g, '>');
@@ -361,24 +348,20 @@ export function convertMathmlToLatex(mathml: string): string {
        .replace(/&#x([0-9a-fA-F]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
        .replace(/&#([0-9]+);/g, (_, dec) => String.fromCharCode(parseInt(dec, 10)));
 
-  // Clean zero-width and invisible math operators (invisible times U+2062, function apply U+2061, etc.)
   s = s.replace(/[\u2061\u2062\u2063\u2064\u200B\uFEFF]/g, '');
   s = s.replace(/\\n/g, ' ').replace(/[\r\n]+/g, ' ');
   s = s.replace(/，/g, ', ').replace(/、/g, ', ');
 
-  // Clean semantics & annotations
   s = s.replace(/<semantics[^>]*>([\s\S]*?)<\/semantics>/gi, '$1');
   s = s.replace(/<annotation[^>]*>[\s\S]*?<\/annotation>/gi, '');
   s = s.replace(/<mspace[^>]*>/gi, ' ');
 
-  // Clean opening/closing <math> tag
   s = s.replace(/^<math[^>]*>/i, '').replace(/<\/math>$/i, '');
 
   function parseNodes(str: string): string {
     if (!str) return '';
     let res = str;
 
-    // Unwrap mstyle, mrow, mpadded container tags first if present so splitMathmlNodes sees distinct elements
     let prevContainer = '';
     while (res !== prevContainer) {
       prevContainer = res;
@@ -386,17 +369,15 @@ export function convertMathmlToLatex(mathml: string): string {
       res = res.replace(/<mpadded[^>]*>([\s\S]*?)<\/mpadded>/gi, '$1');
     }
 
-    // Parse mtable first before stripping row/cell wrappers
     res = res.replace(/<mtable[^>]*>([\s\S]*?)<\/mtable>/gi, (_, inner) => {
       const rows = inner.match(/<mtr[^>]*>[\s\S]*?<\/mtr>/gi) || [inner];
       const latexRows = rows.map((r: string) => {
         const cells = r.match(/<mtd[^>]*>[\s\S]*?<\/mtd>/gi) || [r];
         return cells.map((c: string) => parseNodes(c.replace(/<\/?mtd[^>]*>/gi, ''))).join(' & ');
       }).join(' \\\\ ');
-      return `\\begin{matrix} ${latexRows} \\end{matrix}`;
+      return `\\begin{aligned} ${latexRows} \\end{aligned}`;
     });
 
-    // Recursively parse mfrac FIRST on raw MathML XML tags before converting inner tags to LaTeX strings
     let prev = '';
     while (res !== prev) {
       prev = res;
@@ -409,7 +390,6 @@ export function convertMathmlToLatex(mathml: string): string {
       });
     }
 
-    // Parse mroot BEFORE child tags like msup/msub so root index is not stripped
     prev = '';
     while (res !== prev) {
       prev = res;
@@ -422,10 +402,8 @@ export function convertMathmlToLatex(mathml: string): string {
       });
     }
 
-    // Parse msqrt
     res = res.replace(/<msqrt[^>]*>([\s\S]*?)<\/msqrt>/gi, (_, inner) => `\\sqrt{${parseNodes(inner)}}`);
 
-    // Recursively parse mmsubsup
     prev = '';
     while (res !== prev) {
       prev = res;
@@ -438,7 +416,6 @@ export function convertMathmlToLatex(mathml: string): string {
       });
     }
 
-    // Recursively parse msup
     prev = '';
     while (res !== prev) {
       prev = res;
@@ -451,7 +428,6 @@ export function convertMathmlToLatex(mathml: string): string {
       });
     }
 
-    // Recursively parse msub
     prev = '';
     while (res !== prev) {
       prev = res;
@@ -464,10 +440,8 @@ export function convertMathmlToLatex(mathml: string): string {
       });
     }
 
-    // Parse mfenced
     res = res.replace(/<mfenced[^>]*>([\s\S]*?)<\/mfenced>/gi, (_, inner) => `\\left(${parseNodes(inner)}\\right)`);
 
-    // Parse mover
     res = res.replace(/<mover[^>]*>([\s\S]*?)<\/mover>/gi, (_, inner) => {
       const parts = splitMathmlNodes(inner);
       if (parts.length >= 2) {
@@ -476,7 +450,6 @@ export function convertMathmlToLatex(mathml: string): string {
       return parseNodes(inner);
     });
 
-    // Parse munder
     res = res.replace(/<munder[^>]*>([\s\S]*?)<\/munder>/gi, (_, inner) => {
       const parts = splitMathmlNodes(inner);
       if (parts.length >= 2) {
@@ -490,10 +463,8 @@ export function convertMathmlToLatex(mathml: string): string {
       return parseNodes(inner);
     });
 
-    // Parse menclose
     res = res.replace(/<menclose[^>]*>([\s\S]*?)<\/menclose>/gi, (_, inner) => `\\boxed{${parseNodes(inner)}}`);
 
-    // Unwrap mstyle, mrow, mpadded, mtr, mtd, math wrappers AFTER splitting structural tags
     prevContainer = '';
     while (res !== prevContainer) {
       prevContainer = res;
@@ -505,7 +476,6 @@ export function convertMathmlToLatex(mathml: string): string {
       res = res.replace(/<math[^>]*>([\s\S]*?)<\/math>/gi, '$1');
     }
 
-    // Parse mtext
     res = res.replace(/<mtext[^>]*>([\s\S]*?)<\/mtext>/gi, (_, t) => {
       const clean = t
         .replace(/%/g, '\\%')
@@ -518,7 +488,6 @@ export function convertMathmlToLatex(mathml: string): string {
       return `\\text{${clean}}`;
     });
 
-    // Parse mo (operators)
     res = res.replace(/<mo[^>]*>([\s\S]*?)<\/mo>/gi, (_, t) => {
       const txt = t.trim().replace(/\\"/g, '"');
       if (txt === '≡') return ' \\equiv ';
@@ -558,7 +527,6 @@ export function convertMathmlToLatex(mathml: string): string {
       return txt;
     });
 
-    // Parse mi (identifiers)
     res = res.replace(/<mi[^>]*>([\s\S]*?)<\/mi>/gi, (_, t) => {
       const txt = t.trim().replace(/\$/g, '\\$').replace(/\\"/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
       if (txt === 'sin' || txt === 'cos' || txt === 'tan' || txt === 'log' || txt === 'ln' || txt === 'sec' || txt === 'csc' || txt === 'cot') {
@@ -582,12 +550,10 @@ export function convertMathmlToLatex(mathml: string): string {
       return txt;
     });
 
-    // Parse mn (numbers)
     res = res.replace(/<mn[^>]*>([\s\S]*?)<\/mn>/gi, (_, t) => {
       return t.trim().replace(/%/g, '\\%').replace(/\$/g, '\\$').replace(/_/g, '{\\_}');
     });
 
-    // Strip any lingering XML or HTML tags cleanly
     res = res.replace(/<\/?([a-z0-9]+)[^>]*>/gi, '');
 
     return res;
@@ -623,7 +589,6 @@ export function convertMathmlToLatex(mathml: string): string {
 
   let finalLatex = parseNodes(s);
 
-  // Global cleanup on resulting LaTeX
   finalLatex = finalLatex
     .replace(/(?<!\\)%/g, '\\%')
     .replace(/−/g, '-')
@@ -636,19 +601,14 @@ export function convertMathmlToLatex(mathml: string): string {
   return finalLatex;
 }
 
-/**
- * Component for rendering MathML markup natively using MathJax.
- */
 function MathJaxMml({ mathml, isBlock = false }: { mathml: string; isBlock?: boolean }) {
   const containerRef = React.useRef<HTMLSpanElement>(null);
 
   const cleanMathML = useMemo(() => {
     let s = mathml;
-    // Clean inline html tags inside mathml XML
     s = s.replace(/<br\s*\/?>/gi, ' ')
          .replace(/<\/?(span|strong|em|b|i|u|div|p)[^>]*>/gi, '');
 
-    // Unescape character entities if present
     s = s.replace(/&amp;/g, '&')
          .replace(/&quot;/g, '"')
          .replace(/&apos;/g, "'")
@@ -659,18 +619,15 @@ function MathJaxMml({ mathml, isBlock = false }: { mathml: string; isBlock?: boo
          .replace(/&#x([0-9a-fA-F]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
          .replace(/&#([0-9]+);/g, (_, dec) => String.fromCharCode(parseInt(dec, 10)));
 
-    // Clean nested <math> tags if present
     if (/<math[^>]*>[\s\S]*<math[^>]*>/i.test(s)) {
       const inner = s.replace(/<\/?math[^>]*>/gi, '');
       s = '<math xmlns="http://www.w3.org/1998/Math/MathML">' + inner + '</math>';
     }
 
-    // Ensure xmlns attribute is present for MathJax / browser MathML parsing
     if (!s.includes('xmlns=')) {
       s = s.replace(/<math/i, '<math xmlns="http://www.w3.org/1998/Math/MathML"');
     }
 
-    // Standardize display attribute
     if (isBlock) {
       if (!s.includes('display=')) {
         s = s.replace(/<math/i, '<math display="block"');
@@ -711,10 +668,7 @@ function MathJaxMml({ mathml, isBlock = false }: { mathml: string; isBlock?: boo
   );
 }
 
-/**
- * High-precision MathRenderer supporting native MathML via MathJax and LaTeX via KaTeX.
- */
-export default function MathRenderer({ text, className = '', highlights, onHighlightClick, explanation }: MathRendererProps) {
+export default function MathRenderer({ text, className = '', highlights, onHighlightClick }: MathRendererProps) {
   const isImage = useMemo(() => {
     if (!text) return false;
     return isPureImageUrl(text.trim());
@@ -722,18 +676,15 @@ export default function MathRenderer({ text, className = '', highlights, onHighl
 
   const processedText = useMemo(() => {
     if (!text || isImage) return '';
-    let formatted = formatMathText(text);
-    if (formatted.includes('underlined') && !/<u[\s>]|\\underline|<ins[\s>]/i.test(formatted)) {
-      formatted = restoreUnderline(formatted, explanation);
-    }
+    let formatted = sanitizeSatText(text);
+    formatted = formatMathText(formatted);
     return formatted;
-  }, [text, isImage, explanation]);
+  }, [text, isImage]);
 
   if (!text) return null;
 
   const rawTrimmed = text.trim();
 
-  // If the entire text is an image URL (e.g., in graph choice selections), render the image directly
   if (isImage) {
     return (
       <span className={`inline-block my-1 ${className}`}>
@@ -748,19 +699,20 @@ export default function MathRenderer({ text, className = '', highlights, onHighl
     );
   }
 
-  // Render a math string using KaTeX safely
   const renderKatex = (latex: string, isBlock = false, key: number) => {
     let cleanLatex = latex.trim();
-    // Ensure percentage signs are properly escaped as \% so KaTeX does not treat them as LaTeX comments
+    // Clean any residual stray backslashes before plain digits
+    cleanLatex = cleanLatex.replace(/\\+(?=[0-9])/g, '');
     cleanLatex = cleanLatex.replace(/(?<!\\)%/g, '\\%');
-    // Convert common plain-text fraction patterns like (4/3) -> \frac{4}{3} if not already LaTeX
     if (!cleanLatex.includes('\\frac') && /\b\d+\/\d+\b/.test(cleanLatex)) {
       cleanLatex = cleanLatex.replace(/\b(\d+)\/(\d+)\b/g, '\\frac{$1}{$2}');
     }
 
+    const isMultiLine = isBlock || /\\begin\{(aligned|matrix|cases|gathered|array)\}/i.test(cleanLatex) || cleanLatex.includes('\\\\');
+
     try {
       const html = katex.renderToString(cleanLatex, {
-        displayMode: isBlock,
+        displayMode: isMultiLine,
         throwOnError: false,
         output: 'html',
         strict: false,
@@ -769,22 +721,21 @@ export default function MathRenderer({ text, className = '', highlights, onHighl
       return (
         <span
           key={key}
-          className={isBlock ? 'block my-2 overflow-x-auto text-center text-inherit font-serif' : 'inline-block px-0.5 align-baseline text-inherit font-serif'}
+          className={isMultiLine ? 'block my-2 overflow-x-auto text-center text-inherit font-serif' : 'inline-block px-0.5 align-baseline text-inherit font-serif'}
           dangerouslySetInnerHTML={{ __html: html }}
         />
       );
     } catch {
       return (
         <span key={key} className="inline font-mono text-inherit font-medium">
-          {latex}
+          {latex.replace(/\\(?=[0-9\s])/g, '')}
         </span>
       );
     }
   };
 
-  // Tokenize string into MathML, KaTeX math blocks, vs plain prose
   const tokens: { type: 'mathml' | 'math' | 'prose'; text: string; isBlock?: boolean }[] = [];
-  const mathRegex = /(<math[\s\S]*?<\/math>|\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\$(?:\\begin\{[a-z*]+\}[\s\S]*?\\end\{[a-z*]+\}|[^$\n]+?)\$|`[^`]+?`|\\begin\{([a-z*]+)\}[\s\S]*?\\end\{\2\})/gi;
+  const mathRegex = /(<math[\s\S]*?<\/math>|\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\$(?:\\begin\{[a-z*]+\}[\s\S]*?\\end\{[a-z*]+\}|[^$\n]+?)(?<!\\)\$|`[^`]+?`|\\begin\{([a-z*]+)\}[\s\S]*?\\end\{\2\})/gi;
 
   let lastIdx = 0;
   let match: RegExpExecArray | null;
@@ -793,13 +744,11 @@ export default function MathRenderer({ text, className = '', highlights, onHighl
     const start = match.index;
     const fullMatch = match[0];
 
-    // Check if it's a false-positive $...$ matching between two standalone currency amounts in prose
-    // e.g. "$7.99 item seem like it costs $7" -> naive regex matches "$7.99 item seem like it costs $"
-    if (fullMatch.startsWith('$') && fullMatch.endsWith('$') && fullMatch.length > 2 && !fullMatch.includes('\\')) {
+    if (fullMatch.startsWith('$') && fullMatch.endsWith('$') && fullMatch.length > 2) {
       const inner = fullMatch.slice(1, -1);
       const words = inner.match(/\b[a-zA-Z]{2,}\b/g) || [];
-      const nonMathWords = words.filter((w) => !/^(?:sin|cos|tan|log|ln|lim|max|min|det|deg|rad|var|mod|and|or|is|if|for|all|not)$/i.test(w));
-      if (nonMathWords.length >= 2) {
+      const nonMathWords = words.filter((w) => !/^(?:sin|cos|tan|log|ln|lim|max|min|det|deg|rad|var|mod|and|or|is|if|for|all|not|ge|le|pm|times|div|frac|sqrt)$/i.test(w));
+      if (nonMathWords.length >= 2 && !inner.includes('\\begin') && !inner.includes('\\text')) {
         mathRegex.lastIndex = start + 1;
         continue;
       }
@@ -810,9 +759,8 @@ export default function MathRenderer({ text, className = '', highlights, onHighl
     }
 
     if (fullMatch.toLowerCase().startsWith('<math')) {
-      // In College Board SAT XML, MathML tags include display="block" by default even for inline formulas.
-      // We render MathML inline by default so equations inside sentences/choices flow naturally without breaking lines.
-      tokens.push({ type: 'mathml', text: fullMatch, isBlock: false });
+      const isMtable = /<mtable/i.test(fullMatch);
+      tokens.push({ type: 'mathml', text: fullMatch, isBlock: isMtable });
     } else {
       const isBlock = (fullMatch.startsWith('$$') && fullMatch.endsWith('$$')) ||
                       (fullMatch.startsWith('\\[') && fullMatch.endsWith('\\]')) ||

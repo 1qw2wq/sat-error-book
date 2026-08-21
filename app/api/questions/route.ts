@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
-import { RawSATQuestion, SATExamSummary, SATCombinedExamSummary } from '@/types/sat';
+import { RawSATQuestion, SATExamSummary, SATCombinedExamSummary, SATErrorItem } from '@/types/sat';
 import { SAT_DOMAINS, classifyQuestionDomain } from '@/lib/satDomains';
+import { repairErrorItemFromRaw, isDummyChoices } from '@/lib/questionBank';
 
 // Server-side in-memory cache
 let cachedQuestions: RawSATQuestion[] | null = null;
@@ -599,13 +600,34 @@ export async function GET(req: NextRequest) {
     });
   }
 
+  if (action === 'lookup') {
+    const idParam = searchParams.get('id');
+    const idsParam = searchParams.get('ids');
+    if (idParam) {
+      const targetId = parseInt(idParam, 10);
+      const found = questions.find((q) => q.question_id === targetId);
+      return NextResponse.json({ success: true, question: found || null });
+    }
+    if (idsParam) {
+      const targetIds = new Set(
+        idsParam
+          .split(',')
+          .map((id) => parseInt(id.trim(), 10))
+          .filter((n) => !isNaN(n))
+      );
+      const foundList = questions.filter((q) => targetIds.has(q.question_id));
+      return NextResponse.json({ success: true, questions: foundList });
+    }
+    return NextResponse.json({ success: false, error: 'No id or ids provided' }, { status: 400 });
+  }
+
   return NextResponse.json({ success: false, error: 'Unknown action' }, { status: 400 });
 }
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { action, question } = body;
+    const { action, question, items } = body;
 
     if (action === 'update_question' && question && question.question_id) {
       const questions = loadQuestions();
@@ -626,6 +648,103 @@ export async function POST(req: NextRequest) {
       cachedCombinedExams = null;
 
       return NextResponse.json({ success: true, question });
+    }
+
+    if (action === 'restore_error_items' && Array.isArray(items)) {
+      const errorItems = items as SATErrorItem[];
+      const questions = loadQuestions();
+      const questionMap = new Map<number, RawSATQuestion>();
+      for (const q of questions) {
+        questionMap.set(q.question_id, q);
+      }
+
+      let restoredCount = 0;
+      const updatedItems = errorItems.map((item) => {
+        let matchedRaw: RawSATQuestion | undefined = undefined;
+
+        // 1. Direct ID match in item.id
+        const idMatch = item.id.match(/(?:sat_q_|err-?)(\d+)/i);
+        if (idMatch) {
+          const parsed = parseInt(idMatch[1], 10);
+          if (questionMap.has(parsed)) {
+            matchedRaw = questionMap.get(parsed);
+          }
+        }
+
+        // 2. ID match in userNotes or testSource
+        if (!matchedRaw && item.userNotes) {
+          const notesIdMatch = item.userNotes.match(/(?:sat_q_|Q#\s*|question_id\s*:\s*)(\d+)/i);
+          if (notesIdMatch) {
+            const parsed = parseInt(notesIdMatch[1], 10);
+            if (questionMap.has(parsed)) {
+              matchedRaw = questionMap.get(parsed);
+            }
+          }
+        }
+
+        // 3. Robust word overlap matching across bank
+        if (!matchedRaw && item.questionText) {
+          const cleanItem = item.questionText
+            .replace(/<[^>]+>/g, ' ')
+            .replace(/[$_\\{}]/g, ' ')
+            .replace(/[^\w\s\u4e00-\u9fa5]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .toLowerCase();
+
+          const words = cleanItem.split(' ').filter((w) => w.length > 3);
+
+          if (words.length >= 3) {
+            let maxScore = 0;
+            let candidate: RawSATQuestion | undefined = undefined;
+
+            for (const q of questions) {
+              const cleanQ = q.question
+                .replace(/<[^>]+>/g, ' ')
+                .replace(/[$_\\{}]/g, ' ')
+                .replace(/[^\w\s\u4e00-\u9fa5]/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .toLowerCase();
+
+              let matchCount = 0;
+              for (const w of words) {
+                if (cleanQ.includes(w)) matchCount++;
+              }
+              const score = matchCount / words.length;
+              if (score > maxScore && score >= 0.5) {
+                maxScore = score;
+                candidate = q;
+              }
+            }
+
+            if (candidate) {
+              matchedRaw = candidate;
+            }
+          }
+        }
+
+        if (matchedRaw) {
+          restoredCount++;
+          return repairErrorItemFromRaw(item, matchedRaw);
+        }
+
+        // Clean up dummy choices if present
+        if (isDummyChoices(item.answerChoices)) {
+          return {
+            ...item,
+            answerChoices: [],
+          };
+        }
+
+        return item;
+      });
+
+      return NextResponse.json({
+        success: true,
+        restoredCount,
+        items: updatedItems,
+      });
     }
 
     return NextResponse.json({ success: false, error: 'Unsupported POST action' }, { status: 400 });

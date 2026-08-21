@@ -24,6 +24,7 @@ import {
 import { SATErrorItem, SATSubject, MasteryStatus } from '@/types/sat';
 import { saveError, recordReview } from '@/lib/db';
 import { gradeStudentResponse, evaluateSATQuestionAnswer } from '@/lib/answerGrading';
+import { isDummyChoices } from '@/lib/questionBank';
 import MathRenderer from './MathRenderer';
 import GraphRenderer from './GraphRenderer';
 import Scratchpad from './Scratchpad';
@@ -152,16 +153,28 @@ export default function ErrorQuizModal({
 
   // Convert testDeck to Bluebook Question Format
   const bluebookQuestions: BluebookQuestionItem[] = testDeck.map((err, idx) => {
-    const choices =
-      err.answerChoices && err.answerChoices.length > 0
-        ? err.answerChoices.map((c) => c.text)
-        : undefined;
+    const hasValidChoices =
+      err.answerChoices &&
+      err.answerChoices.length > 0 &&
+      !isDummyChoices(err.answerChoices);
+
+    const choices = hasValidChoices
+      ? err.answerChoices!.map((c) => c.text)
+      : undefined;
+
+    const fullPrompt =
+      err.passageText &&
+      err.passageText.trim().length > 0 &&
+      err.passageText.trim().toLowerCase() !== 'none' &&
+      !err.questionText.includes(err.passageText.trim().slice(0, 25))
+        ? `${err.passageText}\n\n${err.questionText}`
+        : err.questionText;
 
     return {
       id: err.id,
       number: idx + 1,
       passageText: err.passageText?.trim() ? err.passageText.trim() : undefined,
-      questionPrompt: err.questionText,
+      questionPrompt: fullPrompt,
       choices,
       correctAnswer: err.correctAnswer,
       isGridIn: !choices || choices.length === 0,
@@ -591,7 +604,7 @@ export default function ErrorQuizModal({
                         </div>
 
                         <div className="line-clamp-2 text-slate-600 dark:text-slate-300 font-medium">
-                          <MathRenderer text={item.questionText} />
+                          <MathRenderer text={item.questionText} explanation={item.explanation} />
                         </div>
 
                         <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-200/60 dark:border-slate-800/60">

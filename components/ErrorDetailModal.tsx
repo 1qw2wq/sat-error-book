@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { SATErrorItem, MasteryStatus, MistakeType, SATSubject, AnswerChoice, GraphData } from '@/types/sat';
 import { saveError, deleteError } from '@/lib/db';
+import { splitPassageAndPrompt, isDummyChoices } from '@/lib/questionBank';
 import MathRenderer from './MathRenderer';
 import GraphRenderer from './GraphRenderer';
 import MarkdownRenderer from './MarkdownRenderer';
@@ -66,11 +67,21 @@ export default function ErrorDetailModal({
   const [isAddVocabOpen, setIsAddVocabOpen] = useState(false);
   const [previewMode, setPreviewMode] = useState(false);
 
+  const fullInitialQuestion =
+    item?.passageText &&
+    item.passageText.trim().length > 0 &&
+    item.passageText.trim().toLowerCase() !== 'none' &&
+    !item.questionText.includes(item.passageText.trim().slice(0, 25))
+      ? `${item.passageText}\n\n${item.questionText}`
+      : item?.questionText || '';
+
   // Form states for full question & analysis editing
   const [subject, setSubject] = useState<SATSubject>(item?.subject || 'Math');
   const [subTopic, setSubTopic] = useState<string>(item?.subTopic || 'Algebra');
-  const [questionText, setQuestionText] = useState<string>(item?.questionText || '');
-  const [answerChoices, setAnswerChoices] = useState<AnswerChoice[]>(item?.answerChoices || []);
+  const [questionText, setQuestionText] = useState<string>(fullInitialQuestion);
+  const [answerChoices, setAnswerChoices] = useState<AnswerChoice[]>(
+    item?.answerChoices && !isDummyChoices(item.answerChoices) ? item.answerChoices : []
+  );
   const [correctAnswer, setCorrectAnswer] = useState<string>(item?.correctAnswer || 'A');
   const [aiTakeaway, setAiTakeaway] = useState<string>(item?.aiTakeaway || '');
   const [explanation, setExplanation] = useState<string>(item?.explanation || '');
@@ -182,10 +193,13 @@ export default function ErrorDetailModal({
   };
 
   const handleSaveEdits = async () => {
+    const { passageText, questionPrompt } = splitPassageAndPrompt(questionText.trim(), subject, explanation);
+
     const updated: SATErrorItem = {
       ...item,
       subject,
       subTopic: subTopic.trim() || 'General',
+      passageText: passageText || item.passageText,
       questionText: questionText.trim(),
       answerChoices,
       correctAnswer: correctAnswer.trim(),
@@ -918,56 +932,103 @@ export default function ErrorDetailModal({
                 </div>
               )}
 
-              {/* Question text */}
-              <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-[0.1em]">
-                    Question Text & Prompt
-                  </h4>
-                  <button
-                    type="button"
-                    onClick={() => setIsEditing(true)}
-                    className="text-xs text-blue-600 dark:text-blue-400 font-semibold hover:underline flex items-center gap-1"
-                  >
-                    <Edit3 className="w-3 h-3" />
-                    <span>Edit</span>
-                  </button>
-                </div>
-                <div className="text-sm font-medium text-slate-900 dark:text-slate-100 leading-relaxed">
-                  <MarkdownRenderer content={item.questionText} />
-                </div>
+              {/* Reading Passage and Question Prompt Rendering */}
+              {(() => {
+                const parsed = splitPassageAndPrompt(item.questionText, item.subject, item.explanation);
+                const hasExplicitPassage =
+                  item.passageText &&
+                  item.passageText.trim().length > 0 &&
+                  item.passageText.trim().toLowerCase() !== 'none' &&
+                  item.passageText.trim().toLowerCase() !== 'no passage';
 
-                {/* Answer Choices */}
-                {item.answerChoices && item.answerChoices.length > 0 && (
-                  <div className="pt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {item.answerChoices.map((choice) => {
-                      const isCorrect = choice.label === item.correctAnswer;
-                      return (
-                        <div
-                          key={choice.label}
-                          className={`p-2.5 rounded-lg border text-xs flex items-center gap-2 ${
-                            isCorrect
-                              ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-400 text-emerald-900 dark:text-emerald-200 font-bold'
-                              : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'
-                          }`}
-                        >
-                          <span className="w-5 h-5 rounded bg-slate-100 dark:bg-slate-800 flex items-center justify-center font-bold text-[10px]">
-                            {choice.label}
-                          </span>
-                          <span className="flex-1">
-                            <MarkdownRenderer content={choice.text} />
-                          </span>
-                          {isCorrect && (
-                            <span className="ml-auto text-[10px] uppercase font-extrabold text-emerald-600">
-                              (Correct)
-                            </span>
-                          )}
+                let effectivePassage = hasExplicitPassage ? item.passageText : parsed.passageText;
+                let effectivePrompt = parsed.passageText ? parsed.questionPrompt : item.questionText;
+
+                // Clean duplicate passage if questionText starts with passageText
+                if (effectivePassage && effectivePrompt.startsWith(effectivePassage.slice(0, 30))) {
+                  effectivePrompt = effectivePrompt.replace(effectivePassage, '').trim();
+                }
+
+                return (
+                  <>
+                    {effectivePassage && effectivePassage.trim().length > 0 && (
+                      <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2">
+                        <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-[0.1em]">
+                          Reading / Context Passage
+                        </h4>
+                        <div className="text-sm font-medium text-slate-800 dark:text-slate-200 leading-relaxed border-l-2 border-blue-500/60 pl-3">
+                          <MarkdownRenderer content={effectivePassage} explanation={item.explanation} />
                         </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
+                      </div>
+                    )}
+
+                    {/* Question text */}
+                    <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-[0.1em]">
+                          Question Text & Prompt
+                        </h4>
+                        <button
+                          type="button"
+                          onClick={() => setIsEditing(true)}
+                          className="text-xs text-blue-600 dark:text-blue-400 font-semibold hover:underline flex items-center gap-1"
+                        >
+                          <Edit3 className="w-3 h-3" />
+                          <span>Edit</span>
+                        </button>
+                      </div>
+                      <div className="text-sm font-medium text-slate-900 dark:text-slate-100 leading-relaxed">
+                        <MarkdownRenderer content={effectivePrompt} explanation={item.explanation} />
+                      </div>
+
+                      {/* Answer Choices or Student-Produced Response */}
+                      {item.answerChoices && item.answerChoices.length > 0 && !isDummyChoices(item.answerChoices) ? (
+                        <div className="pt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {item.answerChoices.map((choice) => {
+                            const isCorrect = choice.label.toUpperCase() === item.correctAnswer.toUpperCase();
+                            return (
+                              <div
+                                key={choice.label}
+                                className={`p-2.5 rounded-lg border text-xs flex items-center gap-2 ${
+                                  isCorrect
+                                    ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-400 text-emerald-900 dark:text-emerald-200 font-bold'
+                                    : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'
+                                }`}
+                              >
+                                <span className="w-5 h-5 rounded bg-slate-100 dark:bg-slate-800 flex items-center justify-center font-bold text-[10px]">
+                                  {choice.label}
+                                </span>
+                                <span className="flex-1 font-serif">
+                                  <MarkdownRenderer content={choice.text} />
+                                </span>
+                                {isCorrect && (
+                                  <span className="ml-auto text-[10px] uppercase font-extrabold text-emerald-600 dark:text-emerald-400">
+                                    (Correct)
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="mt-3 p-3.5 rounded-xl bg-slate-100/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                          <div className="flex items-center gap-2">
+                            <span className="px-2.5 py-0.5 rounded-md bg-blue-100 dark:bg-blue-950/80 text-blue-800 dark:text-blue-300 text-xs font-bold uppercase tracking-wider">
+                              Student-Produced Response (Grid-In)
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-slate-600 dark:text-slate-400 font-semibold">Official Answer:</span>
+                            <span className="px-3.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-400 dark:border-emerald-700 text-emerald-900 dark:text-emerald-200 font-mono font-bold text-sm shadow-2xs">
+                              <MathRenderer text={item.correctAnswer || 'N/A'} />
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
 
               {/* AI Generator Action in Read Mode */}
               <div className="flex items-center justify-between p-3.5 rounded-2xl bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-950/30 dark:to-indigo-950/30 border border-purple-200 dark:border-purple-900/50">
