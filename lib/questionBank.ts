@@ -24,7 +24,10 @@ export function restoreUnderline(
     return normalized;
   }
 
-  const expl = explanation || '';
+  let expl = explanation || '';
+  if (/中文解析|【解析】|解析[：:]/i.test(expl)) {
+    expl = expl.substring(expl.search(/中文解析|【解析】|解析[：:]/i));
+  }
 
   // Special Case A: Two-underlined questions (e.g. Alabaster poem, Cave formations)
   if (/alabaster box/i.test(normalized) && /is my heart/i.test(normalized)) {
@@ -101,13 +104,45 @@ export function restoreUnderline(
   const promptIdx = promptMatch && promptMatch.index !== undefined ? promptMatch.index : normalized.length;
 
   if (promptIdx > 20) {
-    const passage = normalized.substring(0, promptIdx).trim();
+    let passage = normalized.substring(0, promptIdx).trim();
+
+    // If the prompt explicitly refers to Text 1 or Text 2, isolate that text
+    const asksAboutText1 = /underlined\s+(?:portion|sentence|claim|words?|phrase|statement|idea|part)\s+(?:of|in)\s+Text\s*1/i.test(normalized);
+    const asksAboutText2 = /underlined\s+(?:portion|sentence|claim|words?|phrase|statement|idea|part)\s+(?:of|in)\s+Text\s*2/i.test(normalized);
+
+    if (asksAboutText1) {
+      const t2Match = passage.match(/(?:\n\n|\n|\.\s+)(?:\*\*)?(?:Text\s*2|Passage\s*2)(?:\*\*)?/i);
+      if (t2Match && t2Match.index !== undefined) {
+        passage = passage.substring(0, t2Match.index).trim();
+      }
+    } else if (asksAboutText2) {
+      const t2Match = passage.match(/(?:\n\n|\n|\.\s+)(?:\*\*)?(?:Text\s*2|Passage\s*2)(?:\*\*)?[\s:\-–]*/i);
+      if (t2Match && t2Match.index !== undefined) {
+        passage = passage.substring(t2Match.index + t2Match[0].length).trim();
+      }
+    }
+
     const sentences = passage
       .split(/(?<=[.!?])\s+(?=[A-Z“"\[0-9])/)
-      .map((s) => s.trim())
+      .map((s) => s.replace(/^(?:\*\*)?(?:Text\s*[12AB]|Passage\s*[12AB])(?:\*\*)?[\s:\-–]*/i, '').trim())
       .filter((s) => s.length > 8);
 
     if (sentences.length > 0) {
+      if (asksAboutText1) {
+        if (/文本\s*1\s*(?:的)?(?:第一句|首句|开头)/i.test(expl)) {
+          return normalized.replace(sentences[0], `<u>${sentences[0]}</u>`);
+        }
+        const last = sentences[sentences.length - 1];
+        return normalized.replace(last, `<u>${last}</u>`);
+      }
+      if (asksAboutText2) {
+        if (/文本\s*2\s*(?:的)?(?:第一句|首句|开头)/i.test(expl)) {
+          return normalized.replace(sentences[0], `<u>${sentences[0]}</u>`);
+        }
+        const last = sentences[sentences.length - 1];
+        return normalized.replace(last, `<u>${last}</u>`);
+      }
+
       if (/第一句|首句|开头/i.test(expl)) {
         return normalized.replace(sentences[0], `<u>${sentences[0]}</u>`);
       }

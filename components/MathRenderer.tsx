@@ -746,11 +746,14 @@ export default function MathRenderer({ text, className = '', highlights, onHighl
 
     if (fullMatch.startsWith('$') && fullMatch.endsWith('$') && fullMatch.length > 2) {
       const inner = fullMatch.slice(1, -1);
-      const words = inner.match(/\b[a-zA-Z]{2,}\b/g) || [];
-      const nonMathWords = words.filter((w) => !/^(?:sin|cos|tan|log|ln|lim|max|min|det|deg|rad|var|mod|and|or|is|if|for|all|not|ge|le|pm|times|div|frac|sqrt)$/i.test(w));
-      if (nonMathWords.length >= 2 && !inner.includes('\\begin') && !inner.includes('\\text')) {
-        mathRegex.lastIndex = start + 1;
-        continue;
+      const hasLatexSyntax = /\\[a-zA-Z]+|[=<>+\-^_\/\\\{\}\(\)]|^\d+$/.test(inner);
+      if (!hasLatexSyntax) {
+        const words = inner.match(/\b[a-zA-Z]{2,}\b/g) || [];
+        const nonMathWords = words.filter((w) => !/^(?:sin|cos|tan|log|ln|lim|max|min|det|deg|rad|var|mod|and|or|is|if|for|all|not|ge|le|pm|times|div|frac|sqrt|pi|theta|alpha|beta|gamma|delta|sigma|lambda|mu|phi|omega)$/i.test(w));
+        if (nonMathWords.length >= 2 && !inner.includes('\\begin') && !inner.includes('\\text')) {
+          mathRegex.lastIndex = start + 1;
+          continue;
+        }
       }
     }
 

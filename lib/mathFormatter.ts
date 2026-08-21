@@ -124,7 +124,7 @@ const VALID_LATEX_COMMANDS = /\\(?:frac|sqrt|left|right|begin|end|alpha|beta|gam
  */
 export function sanitizeSatText(text: string): string {
   if (!text) return '';
-  let s = text.replace(/[\u200B\uFEFF]/g, '');
+  let s = text.replace(/[\u200B\uFEFF]/g, '').replace(/[\u00A0\u202F\u2007]/g, ' ');
 
   // 1. Decode HTML XML entities
   s = s.replace(/&(?:#36|#x24|dollar);/gi, '$');
@@ -147,6 +147,10 @@ export function sanitizeSatText(text: string): string {
   s = s.replace(/<+\s*<+\s*\/?/g, '<');
   s = s.replace(/<\/u\s*<\/u>/gi, '</u>');
   s = s.replace(/<u\s*<u\s*>/gi, '<u>');
+
+  // Prevent Text 1 / Text 2 headers from being enclosed inside <u>
+  s = s.replace(/(?:^|\n)\s*<u>\s*(Text\s*[12AB]|Passage\s*[12AB])\s*<\/u>/gi, '$1');
+  s = s.replace(/(?:^|\n)\s*<u>\s*(Text\s*[12AB]|Passage\s*[12AB])\b/gi, '$1 <u>');
 
   // 4. Remove stray OCR dollar signs embedded in English words (e.g. "Which$ choice" -> "Which choice")
   s = s.replace(/\b([A-Za-z]+)\$([A-Za-z]*)\b/g, '$1 $2').replace(/[ \t]+/g, ' ');
@@ -261,14 +265,14 @@ export function formatMathText(rawText: string): string {
   s = s.replace(/<\/u>([A-Za-z0-9])/g, '</u> $1');
   s = s.replace(/([A-Za-z0-9])<u>/g, '$1 <u>');
 
-  // 3. Paired passage headers
-  s = s.replace(/^(?:\s*|\n*)(Text\s*1|Passage\s*1|Text\s*A|Passage\s*A)(?:\s*[:\-–]?\s*)([A-Z"“])/g, (_, title, nextChar) => {
-    return `**${title.trim()}**\n\n${nextChar}`;
+  // 3. Paired passage headers (Text 1, Text 2, Passage 1, Passage 2)
+  s = s.replace(/(?:^|\n\n|\n)\s*(?:<u>\s*)?(Text\s*[12AB]|Passage\s*[12AB])(?:\s*<\/u>)?(?:\s*[:\-–]?\s*)([A-Za-z0-9"“'‘<])/g, (_, title, nextChar) => {
+    return `\n\n**${title.trim()}**\n\n${nextChar}`;
   });
+  s = s.trim();
 
-  s = s.replace(/(?<!\b(?:of|in|to|from|between|both|and|about|with|for|than|author|claim|view|response|mention|mentions|states|discusses|passage|text|read|see|into)\s+)(?:[\.\!\?]["”']?\s*|<\/u>\s*)(Text\s*2|Passage\s*2|Text\s*B|Passage\s*B)(?:\s*[:\-–]?\s*)([A-Z"“])/g, (_, title, nextChar) => {
-    return `.\n\n**${title.trim()}**\n\n${nextChar}`;
-  });
+  // If <u> sits right before **Text 1**, move <u> after **Text 1**
+  s = s.replace(/<u>\s*(\*\*(?:Text\s*[12AB]|Passage\s*[12AB])\*\*)\s*/gi, '$1\n\n<u>');
 
   // 4. Separate SAT introductory lead-in sentences
   s = s.replace(
@@ -284,14 +288,11 @@ export function formatMathText(rawText: string): string {
   s = s.replace(/(?:^|\n)\s*[•\u2022▪\u25AA‣\u2023◦\u25E6⁃\u2043・\u30FB∙\u2219·\u00B7]\s*/g, '\n* ');
   s = s.replace(/([^\n])\s+[•\u2022▪\u25AA‣\u2023◦\u25E6⁃\u2043・\u30FB∙\u2219·\u00B7]\s*/g, '$1\n* ');
 
-  // 7. Unwrap question prompts trapped inside math blocks
-  const proseWordsInMathBlock = /\b(?:the|value|of|points|point|passes|through|has|graph|function|what|is|quadratic|plane|which|following|where|find|table|how|many)\b/i;
-  s = s.replace(/\$([^\$\n]+?\b(?:What is|Which of the following|Find the value|What value|Calculate|Solve for|How many)\b[^\$\n]*)\$/gi, (match, inner) => {
+  // 7. Unwrap entire OCR question prompts mistakenly wrapped in single outer $ ... $
+  // ONLY when the entire string from start to end is wrapped in a single $ ... $ and contains question prompt prose
+  s = s.replace(/^\s*\$([^\$]+?\b(?:What is|Which of the following|Find the value|What value|Calculate|Solve for|How many)\b[^\$]+)\$\s*$/i, (match, inner) => {
     if (inner.includes('\\begin') || inner.includes('\\text')) return match;
-    if (proseWordsInMathBlock.test(inner)) {
-      return inner;
-    }
-    return match;
+    return inner.trim();
   });
 
   return s;
