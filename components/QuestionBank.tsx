@@ -189,6 +189,7 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
   const [drillHistory, setDrillHistory] = useState<PracticeHistoryItem[]>(() => getPracticeHistory());
   const [savedSessions, setSavedSessions] = useState<SavedTestSession[]>(() => getSavedTestSessions());
   const [showHistoryModal, setShowHistoryModal] = useState<boolean>(false);
+  const [confirmClearDrillHistory, setConfirmClearDrillHistory] = useState<boolean>(false);
   const [showSavePresetModal, setShowSavePresetModal] = useState<boolean>(false);
   const [newPresetTitle, setNewPresetTitle] = useState<string>('');
   const [newPresetDesc, setNewPresetDesc] = useState<string>('');
@@ -2317,7 +2318,10 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
             setSavedSessions(getSavedTestSessions());
             setTestingSession(null);
           }}
-          onClose={() => setTestingSession(null)}
+          onClose={() => {
+            setSavedSessions(getSavedTestSessions());
+            setTestingSession(null);
+          }}
         />
       )}
 
@@ -2834,20 +2838,43 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
 
               <div className="flex items-center gap-2">
                 {drillHistory.length > 0 && (
-                  <button
-                    onClick={() => {
-                      if (confirm('Are you sure you want to clear your practice drill history?')) {
-                        clearPracticeHistory();
-                        setDrillHistory([]);
-                      }
-                    }}
-                    className="text-xs text-rose-500 hover:text-rose-600 font-bold px-2.5 py-1 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/50 cursor-pointer"
-                  >
-                    Clear History
-                  </button>
+                  confirmClearDrillHistory ? (
+                    <div className="flex items-center gap-1.5 bg-rose-50 dark:bg-rose-950/60 p-1 rounded-lg border border-rose-200 dark:border-rose-800">
+                      <span className="text-[10px] text-rose-700 dark:text-rose-300 font-bold px-1">Clear all?</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          clearPracticeHistory();
+                          setDrillHistory([]);
+                          setConfirmClearDrillHistory(false);
+                        }}
+                        className="text-[11px] bg-rose-600 hover:bg-rose-700 text-white font-black px-2 py-0.5 rounded cursor-pointer"
+                      >
+                        Yes
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmClearDrillHistory(false)}
+                        className="text-[11px] bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-semibold px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setConfirmClearDrillHistory(true)}
+                      className="text-xs text-rose-500 hover:text-rose-600 font-bold px-2.5 py-1 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/50 cursor-pointer"
+                    >
+                      Clear History
+                    </button>
+                  )
                 )}
                 <button
-                  onClick={() => setShowHistoryModal(false)}
+                  onClick={() => {
+                    setShowHistoryModal(false);
+                    setConfirmClearDrillHistory(false);
+                  }}
                   className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 cursor-pointer"
                 >
                   <X className="w-5 h-5" />

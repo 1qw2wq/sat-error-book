@@ -336,6 +336,7 @@ export default function BluebookTestShell({
   const [isTransitionScreenOpen, setIsTransitionScreenOpen] = useState<boolean>(false);
   const [isSaveExitModalOpen, setIsSaveExitModalOpen] = useState<boolean>(false);
   const [isSavedSuccess, setIsSavedSuccess] = useState<boolean>(false);
+  const [isConfirmingDiscard, setIsConfirmingDiscard] = useState<boolean>(false);
   const [breakTimeLeft, setBreakTimeLeft] = useState<number>(600); // 10:00 Break
 
   // Highlighting & Notes
@@ -633,6 +634,22 @@ export default function BluebookTestShell({
     onSaveAndExit,
     onClose,
   ]);
+
+  // Handle Discard & Exit: Completely purge active saved session and exit without saving
+  const handleConfirmDiscardAndExit = useCallback(() => {
+    isTestFinishedRef.current = true;
+    try {
+      if (activeSessionIdRef.current) {
+        deleteSavedTestSession(activeSessionIdRef.current);
+      }
+      if (savedSessionId) {
+        deleteSavedTestSession(savedSessionId);
+      }
+    } catch (err) {
+      console.warn('Failed to delete saved test session on discard:', err);
+    }
+    onClose();
+  }, [savedSessionId, onClose]);
 
   // Initialize test and module start timers on mount
   useEffect(() => {
@@ -2327,43 +2344,77 @@ export default function BluebookTestShell({
               </p>
 
               {/* Action Buttons */}
-              <div className="space-y-2 pt-2">
-                <button
-                  type="button"
-                  onClick={handleConfirmSaveAndExit}
-                  disabled={isSavedSuccess}
-                  className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm shadow-md transition-all active:scale-98 flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  {isSavedSuccess ? (
-                    <>
-                      <CheckCircle2 className="w-4 h-4 text-emerald-300" />
-                      <span>Progress Saved! Exiting...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Save className="w-4 h-4" />
-                      <span>Save & Exit Test</span>
-                    </>
-                  )}
-                </button>
+              <div className="space-y-2.5 pt-2">
+                {!isConfirmingDiscard ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleConfirmSaveAndExit}
+                      disabled={isSavedSuccess}
+                      className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm shadow-md transition-all active:scale-98 flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      {isSavedSuccess ? (
+                        <>
+                          <CheckCircle2 className="w-4 h-4 text-emerald-300" />
+                          <span>Progress Saved! Exiting...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Save className="w-4 h-4" />
+                          <span>Save & Exit Test</span>
+                        </>
+                      )}
+                    </button>
 
-                <div className="flex items-center gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => setIsSaveExitModalOpen(false)}
-                    className="flex-1 py-2.5 px-3 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs transition-colors cursor-pointer"
-                  >
-                    Resume Testing
-                  </button>
+                    <div className="flex items-center gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsSaveExitModalOpen(false);
+                          setIsConfirmingDiscard(false);
+                        }}
+                        className="flex-1 py-2.5 px-3 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs transition-colors cursor-pointer"
+                      >
+                        Resume Testing
+                      </button>
 
-                  <button
-                    type="button"
-                    onClick={onClose}
-                    className="py-2.5 px-3 rounded-xl text-rose-600 hover:bg-rose-50 font-bold text-xs transition-colors cursor-pointer"
-                  >
-                    Discard & Exit
-                  </button>
-                </div>
+                      <button
+                        type="button"
+                        onClick={() => setIsConfirmingDiscard(true)}
+                        className="py-2.5 px-3.5 rounded-xl border border-rose-200 bg-rose-50/60 hover:bg-rose-100 text-rose-600 font-bold text-xs transition-colors cursor-pointer flex items-center gap-1"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Discard Test</span>
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="p-3.5 rounded-2xl bg-rose-50 border border-rose-200 space-y-2.5 animate-in fade-in duration-150 text-center">
+                    <p className="text-xs font-bold text-rose-900">
+                      Permanently discard this test session?
+                    </p>
+                    <p className="text-[11px] text-rose-700 leading-tight">
+                      All your answers and timer progress will be deleted immediately.
+                    </p>
+                    <div className="flex items-center gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => setIsConfirmingDiscard(false)}
+                        className="flex-1 py-2 px-3 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs transition-colors cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleConfirmDiscardAndExit}
+                        className="flex-1 py-2 px-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-black text-xs transition-colors shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Yes, Discard</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
