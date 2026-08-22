@@ -584,10 +584,10 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
     else if (tier === 'easiest') setBuilderDifficultyRange([9, 10]);
   };
 
-  // Fetch Browser Questions
+  // Fetch Browser Questions with debouncing
   useEffect(() => {
     let ignore = false;
-    async function searchBrowser() {
+    const debounceTimer = setTimeout(async () => {
       if (activeTab !== 'browser') return;
       setIsLoadingBrowser(true);
       try {
@@ -614,11 +614,11 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
       } finally {
         if (!ignore) setIsLoadingBrowser(false);
       }
-    }
+    }, 200);
 
-    searchBrowser();
     return () => {
       ignore = true;
+      clearTimeout(debounceTimer);
     };
   }, [activeTab, browserPage, browserLimit, browserQuery, browserSection, browserDifficulty, browserExamFilter, browserOnlyGraphs]);
 

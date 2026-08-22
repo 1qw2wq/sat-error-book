@@ -1,16 +1,52 @@
 /**
+ * Normalizes mathematical Unicode characters (such as mathematical italic letters,
+ * minus signs, operators) to standard characters for reliable KaTeX/HTML rendering.
+ */
+export function normalizeMathUnicode(text: string): string {
+  if (!text) return '';
+  let s = text;
+
+  // Mathematical Italic Small & Capital letters (e.g. 𝑥, 𝑦, 𝑘, ℎ, 𝑎, 𝑏)
+  s = s.replace(/[\u{1D434}-\u{1D44D}]/gu, (c) => String.fromCharCode(c.codePointAt(0)! - 0x1D434 + 65));
+  s = s.replace(/[\u{1D44E}-\u{1D467}]/gu, (c) => String.fromCharCode(c.codePointAt(0)! - 0x1D44E + 97));
+  s = s.replace(/[\u{1D468}-\u{1D481}]/gu, (c) => String.fromCharCode(c.codePointAt(0)! - 0x1D468 + 65));
+  s = s.replace(/[\u{1D482}-\u{1D49B}]/gu, (c) => String.fromCharCode(c.codePointAt(0)! - 0x1D482 + 97));
+  s = s.replace(/[\u{1D5D4}-\u{1D5ED}]/gu, (c) => String.fromCharCode(c.codePointAt(0)! - 0x1D5D4 + 65));
+  s = s.replace(/[\u{1D5EE}-\u{1D607}]/gu, (c) => String.fromCharCode(c.codePointAt(0)! - 0x1D5EE + 97));
+  s = s.replace(/[\u{1D7CE}-\u{1D7D7}]/gu, (c) => String.fromCharCode(c.codePointAt(0)! - 0x1D7CE + 48));
+
+  // Common special math unicode symbols
+  s = s.replace(/ℎ/g, 'h')
+       .replace(/ℯ/g, 'e')
+       .replace(/ℊ/g, 'g')
+       .replace(/ℴ/g, 'o')
+       .replace(/𝜋/g, '\\pi ')
+       .replace(/−/g, '-')
+       .replace(/[–—]/g, '-')
+       .replace(/×/g, '\\times ')
+       .replace(/÷/g, '\\div ')
+       .replace(/≤/g, '\\le ')
+       .replace(/≥/g, '\\ge ')
+       .replace(/≠/g, '\\ne ')
+       .replace(/±/g, '\\pm ');
+
+  return s;
+}
+
+/**
  * Detects and reconstructs flattened SAT tables (2D contingency tables, frequency tables, x/y tables)
  * into clean standard Markdown tables.
  */
 export function reconstructTablesFromText(text: string): string {
   if (!text) return '';
-  // If text already contains pipe tables, don't attempt to reconstruct
+
+  // If text already contains pipe tables, ensure formatting is clean
   if (text.includes('|') && /\|[^\n]+\|/.test(text)) {
     return text;
   }
 
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  if (lines.length < 5) return text;
+  if (lines.length < 4) return text;
 
   const isNumericValue = (s: string) => {
     const clean = s.replace(/[\$,%]/g, '').trim();
@@ -106,8 +142,8 @@ export function reconstructTablesFromText(text: string): string {
     }
   }
 
-  // 2. Detect 2-column key-value / x-y tables
-  for (let i = 0; i < lines.length - 4; i++) {
+  // 2. Detect 2-column key-value / x-y / Frequency tables
+  for (let i = 0; i < lines.length - 3; i++) {
     const h1 = lines[i];
     const h2 = lines[i + 1];
     if (
@@ -126,7 +162,7 @@ export function reconstructTablesFromText(text: string): string {
         pairs.push([lines[valIdx], lines[valIdx + 1]]);
         valIdx += 2;
       }
-      if (pairs.length >= 3) {
+      if (pairs.length >= 2) {
         let mdTable = `\n\n| ${h1} | ${h2} |\n| :--- | :--- |\n`;
         for (const [x, y] of pairs) {
           mdTable += `| ${x} | ${y} |\n`;
@@ -155,6 +191,9 @@ export function sanitizeSatText(text: string): string {
   if (!text) return '';
   let s = text.replace(/[\u200B\uFEFF]/g, '').replace(/[\u00A0\u202F\u2007]/g, ' ');
 
+  // Normalize mathematical unicode (𝑥 -> x, − -> -, etc.)
+  s = normalizeMathUnicode(s);
+
   // 1. Decode HTML XML entities
   s = s.replace(/&(?:#36|#x24|dollar);/gi, '$');
   s = s.replace(/&amp;/g, '&');
@@ -162,6 +201,9 @@ export function sanitizeSatText(text: string): string {
   s = s.replace(/&gt;/g, '>');
   s = s.replace(/&quot;/g, '"');
   s = s.replace(/&(?:#39|apos);/g, "'");
+
+  // Remove leading question numbering like "1. Text 1" -> "Text 1"
+  s = s.replace(/^\d+[\.\s\-]+\s*(?=(?:Text\s*[12AB]|Passage\s*[12AB]|The following|Adapted|In the|Excerpt))/i, '');
 
   // 2. Strip XML/Word processing junk tags
   s = s.replace(/<\?xml[^>]*\?>/gi, '');
@@ -193,14 +235,10 @@ export function sanitizeSatText(text: string): string {
   s = s.replace(/\\(?![a-zA-Z\$\%_\#\&\{\}])/g, '');
 
   // 7. Fix OCR punctuation spacing
-  // Remove spaces before punctuation (e.g. "thought ." -> "thought.")
   s = s.replace(/[ \t]+([,\.\;\:\?\!])/g, '$1');
-
-  // Fix missing space after comma (e.g. "heart,Carven" -> "heart, Carven")
   s = s.replace(/,([A-Za-z0-9])/g, ', $1');
 
-  // Fix missing space after sentence-ending punctuation or quote
-  // e.g. "engagement.By" -> "engagement. By", "Alabaster."Like -> "Alabaster." Like
+  // Fix missing space after sentence-ending punctuation
   s = s.replace(/(?<!\b(?:e\.g|i\.e|U\.S|A\.M|P\.M|Dr|Mr|Mrs|Ms|vs|St|Vol|No|Fig|approx)\.)([.!?]["”’']?)(?=[A-Za-z"“‘])/g, '$1 ');
 
   // 8. Safely normalize underline and ins tags
@@ -240,7 +278,7 @@ export function normalizeUnderlineTags(text: string): string {
 
 export function cleanMathExpr(expr: string): string {
   if (!expr) return '';
-  return expr.replace(/[\u200B\uFEFF]/g, '').trim();
+  return normalizeMathUnicode(expr).replace(/[\u200B\uFEFF]/g, '').trim();
 }
 
 export function cleanMathEquation(eq: string): string {
@@ -287,10 +325,10 @@ export function formatMathText(rawText: string): string {
     s = s.replace(/\\n/g, '\n');
   }
 
-  // Reconstruct flattened table structures (e.g. Group / Number of objects / A / 325 ...) into markdown tables
+  // Reconstruct flattened table structures into markdown tables
   s = reconstructTablesFromText(s);
 
-  // 1. Protect currency dollar amounts with exact captured values (USING A CALLBACK TO PREVENT '$1' OVERWRITES)
+  // 1. Protect currency dollar amounts with exact captured values
   s = s.replace(/(?<!\\)\$(\d+(?:,\d{3})*(?:\.\d{1,2})?)\b/g, (_, amt) => `\\$${amt}`);
 
   // 2. Spacing around HTML underline tags
@@ -321,7 +359,6 @@ export function formatMathText(rawText: string): string {
   s = s.replace(/([^\n])\s+[•\u2022▪\u25AA‣\u2023◦\u25E6⁃\u2043・\u30FB∙\u2219·\u00B7]\s*/g, '$1\n* ');
 
   // 7. Unwrap entire OCR question prompts mistakenly wrapped in single outer $ ... $
-  // ONLY when the entire string from start to end is wrapped in a single $ ... $ and contains question prompt prose
   s = s.replace(/^\s*\$([^\$]+?\b(?:What is|Which of the following|Find the value|What value|Calculate|Solve for|How many)\b[^\$]+)\$\s*$/i, (match, inner) => {
     if (inner.includes('\\begin') || inner.includes('\\text')) return match;
     return inner.trim();
@@ -354,16 +391,27 @@ export function formatMathText(rawText: string): string {
     s = s.replace(/(\|[^\n]+\|)\n*([^\n|])/g, '$1\n\n$2');
   }
 
-  // 9. Fix OCR stripped inequality choices & prompts (e.g. "g(x) f(x)" -> "$g(x) \\lt f(x)$", "x h" -> "$x \\lt h$", "h x k" -> "$h \\lt x \\lt k$")
+  // 9. Fix OCR stripped inequality choices & prompts
   s = s.replace(/\bg\(x\)\s*f\(x\)\b/g, '$g(x) \\lt f(x)$');
   s = s.replace(/^x\s+h$/i, '$x \\lt h$');
   s = s.replace(/^h\s+x\s+k$/i, '$h \\lt x \\lt k$');
   s = s.replace(/\bx\s*>\s*k\s*or\s*x\s*<\s*h\b/gi, '$x \\gt k \\text{ or } x \\lt h$');
   s = s.replace(/\bx\s*<\s*h\s*or\s*x\s*>\s*k\b/gi, '$x \\lt h \\text{ or } x \\gt k$');
 
-  // 10. Fix missing inequality symbols in OCR/scraped math prompts (e.g. "where 10n50" -> "where $10 \\le n \\le 50$")
+  // Fix missing inequality symbols in OCR/scraped math prompts
   s = s.replace(/\bwhere\s+10\s*n\s*50\b/gi, 'where $10 \\le n \\le 50$');
   s = s.replace(/\b10\s*n\s*50\b/gi, '$10 \\le n \\le 50$');
+
+  // 10. Format standalone inequalities like "x > k", "x < h", "h < x < k" into math if not already wrapped
+  s = s.replace(/^([A-Za-z0-9_]+)\s*([<>]=?|\\(?:le|ge|ne|neq))\s*([A-Za-z0-9_]+)$/g, (_, v1, op, v2) => {
+    let cleanOp = op === '<' ? '\\lt ' : op === '>' ? '\\gt ' : op;
+    return `$${v1} ${cleanOp} ${v2}$`;
+  });
+  s = s.replace(/^([A-Za-z0-9_]+)\s*([<>]=?|\\(?:le|ge))\s*([A-Za-z0-9_]+)\s*([<>]=?|\\(?:le|ge))\s*([A-Za-z0-9_]+)$/g, (_, v1, op1, v2, op2, v3) => {
+    let cleanOp1 = op1 === '<' ? '\\lt ' : op1 === '>' ? '\\gt ' : op1;
+    let cleanOp2 = op2 === '<' ? '\\lt ' : op2 === '>' ? '\\gt ' : op2;
+    return `$${v1} ${cleanOp1} ${v2} ${cleanOp2} ${v3}$`;
+  });
 
   // 11. Protect KaTeX math blocks ($...$) by replacing raw < and > with \\lt and \\gt to prevent rehypeRaw HTML tag stripping
   s = s.replace(/\$([^\$]+)\$/g, (_, inner) => {

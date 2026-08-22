@@ -37,7 +37,7 @@ import GraphRenderer from './GraphRenderer';
 import MarkdownRenderer from './MarkdownRenderer';
 import { gradeStudentResponse, evaluateSATQuestionAnswer } from '../lib/answerGrading';
 import { saveError, saveTestSession, deleteSavedTestSession } from '../lib/db';
-import { transformRawToErrorItem, isDummyChoices } from '../lib/questionBank';
+import { transformRawToErrorItem, isDummyChoices, splitPassageAndPrompt, extractEmbeddedChoices } from '../lib/questionBank';
 import { SATErrorItem, RawSATQuestion, SavedTestSession } from '../types/sat';
 
 export interface BluebookQuestionItem {
@@ -1278,8 +1278,44 @@ export default function BluebookTestShell({
         {/* Main Question & Passage Work Area */}
         <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
           {(() => {
-            let displayPassage = currentQ.passageText || '';
-            let displayPrompt = currentQ.questionPrompt || '';
+            let displayPassage = currentQ.passageText?.trim() || '';
+            let displayPrompt = currentQ.questionPrompt?.trim() || '';
+
+            // Clean up duplicate passage in prompt if present
+            if (displayPassage && displayPrompt) {
+              const normPassage = displayPassage.replace(/\s+/g, ' ').trim();
+              const normPrompt = displayPrompt.replace(/\s+/g, ' ').trim();
+
+              if (normPrompt.startsWith(normPassage)) {
+                displayPrompt = displayPrompt.substring(displayPassage.length).trim();
+              } else {
+                const pSub = displayPassage.slice(0, Math.min(35, displayPassage.length)).replace(/\s+/g, ' ').trim();
+                if (pSub && normPrompt.startsWith(pSub)) {
+                  const split = splitPassageAndPrompt(displayPrompt, currentQ.subject === 'Math' ? 'Math' : 'Reading and Writing', currentQ.explanation);
+                  if (split.questionPrompt) {
+                    displayPrompt = split.questionPrompt;
+                  }
+                }
+              }
+            } else if (!displayPassage && displayPrompt) {
+              const split = splitPassageAndPrompt(displayPrompt, currentQ.subject === 'Math' ? 'Math' : 'Reading and Writing', currentQ.explanation);
+              if (split.passageText && split.questionPrompt) {
+                displayPassage = split.passageText;
+                displayPrompt = split.questionPrompt;
+              }
+            }
+
+            // Extract embedded choices from prompt if choices is empty or contains dummy choices
+            const embedded = extractEmbeddedChoices(displayPrompt);
+            const activeChoices = currentQ.choices && currentQ.choices.length > 0 && !isDummyChoices(currentQ.choices)
+              ? currentQ.choices
+              : embedded.choices.length > 0
+              ? embedded.choices
+              : undefined;
+
+            if (embedded.cleanedPrompt && embedded.choices.length > 0 && (!currentQ.choices || isDummyChoices(currentQ.choices))) {
+              displayPrompt = embedded.cleanedPrompt;
+            }
 
             // Defensive split: if passageText contains "The student wants to..." or "A student wants to...", move it to questionPrompt
             if (displayPassage) {
@@ -1384,19 +1420,19 @@ export default function BluebookTestShell({
             </div>
 
             {/* Multiple Choice Options or Grid-in Response */}
-            {currentQ.choices && currentQ.choices.length > 0 && !isDummyChoices(currentQ.choices) ? (
+            {activeChoices && activeChoices.length > 0 && !isDummyChoices(activeChoices) ? (
               <div className="space-y-4 pt-3 w-full">
-                {currentQ.choices.map((choiceText, cIdx) => {
+                {activeChoices.map((choiceText, cIdx) => {
                   const choiceLetter = choiceLabels[cIdx] || String.fromCharCode(65 + cIdx);
                   const isSelected = currentAnswer.toUpperCase() === choiceLetter;
                   const isElim = !isChecked && Boolean(qEliminated[cIdx]);
 
                   const isCurrentCorrect = isChecked
-                    ? evaluateSATQuestionAnswer(currentAnswer, currentQ.correctAnswer || '', currentQ.choices)
+                    ? evaluateSATQuestionAnswer(currentAnswer, currentQ.correctAnswer || '', activeChoices)
                     : false;
 
                   const isOfficialCorrect = isChecked
-                    ? evaluateSATQuestionAnswer(choiceLetter, currentQ.correctAnswer || '', currentQ.choices)
+                    ? evaluateSATQuestionAnswer(choiceLetter, currentQ.correctAnswer || '', activeChoices)
                     : false;
 
                   let containerClasses = 'border-slate-200 hover:border-slate-400 bg-white hover:bg-slate-50/60';
@@ -1607,37 +1643,41 @@ export default function BluebookTestShell({
         if (hasPassage) {
           return (
             <div className="flex-1 flex flex-col md:flex-row overflow-hidden divide-y md:divide-y-0 md:divide-x divide-slate-200">
-                  {/* LEFT PANE: READING PASSAGE / STIMULUS */}
-                  {!isLeftCollapsed && (
-                    <div
-                      className={`h-full bg-slate-50/50 overflow-y-auto p-6 md:p-10 ${
-                        isExpandedLeft ? 'w-3/4' : 'w-1/2'
-                      }`}
-                    >
-                      <div
-                        className="bluebook-passage-content max-w-xl mx-auto text-slate-900 text-sm md:text-base leading-relaxed font-serif tracking-normal select-text"
-                        onMouseUp={handleTextSelect}
-                        onTouchEnd={handleTextSelect}
-                      >
-                        <MarkdownRenderer
-                          content={displayPassage || ''}
-                          highlights={currentQuestionHighlights}
-                          onHighlightClick={handleHighlightClick}
-                          explanation={currentQ.explanation}
-                        />
-                      </div>
-                    </div>
-                  )}
-
-                  {/* RIGHT PANE: QUESTION & OPTIONS */}
-                  <div className={`h-full bg-white overflow-y-auto p-6 md:p-10 ${isExpandedLeft ? 'w-1/4' : 'w-1/2'}`}>
-                    <div className="max-w-xl mx-auto">
-                      {questionStemJsx}
-                    </div>
+              {/* LEFT PANE: READING PASSAGE / STIMULUS */}
+              {!isLeftCollapsed && (
+                <div
+                  className={`flex-1 md:flex-none h-full bg-slate-50/50 overflow-y-auto p-4 sm:p-6 md:p-10 transition-all ${
+                    isExpandedLeft ? 'w-full md:w-3/4' : 'w-full md:w-1/2'
+                  }`}
+                >
+                  <div
+                    className="bluebook-passage-content max-w-xl mx-auto text-slate-900 text-sm md:text-base leading-relaxed font-serif tracking-normal select-text"
+                    onMouseUp={handleTextSelect}
+                    onTouchEnd={handleTextSelect}
+                  >
+                    <MarkdownRenderer
+                      content={displayPassage || ''}
+                      highlights={currentQuestionHighlights}
+                      onHighlightClick={handleHighlightClick}
+                      explanation={currentQ.explanation}
+                    />
                   </div>
                 </div>
-              );
-            }
+              )}
+
+              {/* RIGHT PANE: QUESTION & OPTIONS */}
+              <div
+                className={`flex-1 md:flex-none h-full bg-white overflow-y-auto p-4 sm:p-6 md:p-10 transition-all ${
+                  isExpandedLeft ? 'w-full md:w-1/4' : 'w-full md:w-1/2'
+                }`}
+              >
+                <div className="max-w-xl mx-auto">
+                  {questionStemJsx}
+                </div>
+              </div>
+            </div>
+          );
+        }
 
             // Single Centered Pane (e.g., Math section without passage)
             return (

@@ -9,23 +9,83 @@ import { repairErrorItemFromRaw, isDummyChoices } from '@/lib/questionBank';
 let cachedQuestions: RawSATQuestion[] | null = null;
 let cachedExamSummaries: SATExamSummary[] | null = null;
 let cachedCombinedExams: SATCombinedExamSummary[] | null = null;
+let cachedSearchCorpus: { id: number; text: string; section: string; module: string; examName: string; difficulty: number; type: string; hasGraphs: boolean; raw: RawSATQuestion }[] | null = null;
 
 function loadQuestions(): RawSATQuestion[] {
   if (cachedQuestions) {
     return cachedQuestions;
   }
   try {
+    let combinedQuestions: RawSATQuestion[] = [];
     const filePath = path.join(process.cwd(), 'all_questions.json');
     if (fs.existsSync(filePath)) {
       const raw = fs.readFileSync(filePath, 'utf-8');
-      cachedQuestions = JSON.parse(raw) as RawSATQuestion[];
+      combinedQuestions = JSON.parse(raw) as RawSATQuestion[];
     } else {
       console.warn('all_questions.json not found at', filePath);
-      cachedQuestions = [];
     }
+
+    // Also check and load curated final_questions.json if present
+    const finalFilePath = path.join(process.cwd(), 'final_questions.json');
+    if (fs.existsSync(finalFilePath)) {
+      try {
+        const finalRaw = fs.readFileSync(finalFilePath, 'utf-8');
+        const finalData = JSON.parse(finalRaw);
+        if (Array.isArray(finalData) && finalData.length > 0) {
+          const convertedFinal: RawSATQuestion[] = finalData.map((item: any) => {
+            const hasChoices = Array.isArray(item.choices) && item.choices.length > 0;
+            const passage = item.passage && typeof item.passage === 'string' ? item.passage.trim() : '';
+            const questionText = item.question && typeof item.question === 'string' ? item.question.trim() : '';
+            const fullQuestion = passage ? `${passage}\n\n${questionText}` : questionText;
+
+            return {
+              question_id: 900000 + (item.id || 1),
+              question_no: item.id || 1,
+              question_type: hasChoices ? 'Single Choice' : 'Fill-in-the-Blank / Free Response',
+              difficulty: 8,
+              section: item.section || 'Math',
+              module: (item.id || 1) <= 75 ? 'Module 1' : 'Module 2',
+              question: fullQuestion,
+              selections: hasChoices ? item.choices.map((c: any) => `${c.id}. ${c.text}`) : null,
+              answers: String(item.correctAnswer || ''),
+              graphs: item.imageUrl ? [item.imageUrl] : null,
+              explanations: item.explanation || '',
+              exam_name: 'Hard SAT Math 150 Master Set',
+              category: 'Hard Curated Set',
+            };
+          });
+
+          // Filter out duplicates if already loaded
+          const existingIds = new Set(combinedQuestions.map((q) => q.question_id));
+          const uniqueNew = convertedFinal.filter((q) => !existingIds.has(q.question_id));
+          combinedQuestions = [...combinedQuestions, ...uniqueNew];
+        }
+      } catch (finalErr) {
+        console.error('Failed to parse final_questions.json:', finalErr);
+      }
+    }
+
+    cachedQuestions = combinedQuestions;
+    // Build search corpus
+    cachedSearchCorpus = combinedQuestions.map((q) => {
+      const corpus = `${q.question_id} ${q.question_no} ${q.question} ${q.exam_name || ''} ${q.category || ''} ${q.explanations || ''} ${q.section || ''} ${q.module || ''}`.toLowerCase();
+      const hasG = Array.isArray(q.graphs) ? q.graphs.length > 0 : Boolean(q.graphs);
+      return {
+        id: q.question_id,
+        text: corpus,
+        section: q.section,
+        module: q.module,
+        examName: q.exam_name || '',
+        difficulty: q.difficulty,
+        type: q.question_type,
+        hasGraphs: hasG,
+        raw: q,
+      };
+    });
   } catch (err) {
-    console.error('Failed to load all_questions.json:', err);
+    console.error('Failed to load questions:', err);
     cachedQuestions = [];
+    cachedSearchCorpus = [];
   }
   return cachedQuestions;
 }
@@ -554,6 +614,7 @@ export async function GET(req: NextRequest) {
 
   if (action === 'search') {
     const qQuery = (searchParams.get('q') || '').trim().toLowerCase();
+    const queryTokens = qQuery ? qQuery.split(/\s+/).filter(Boolean) : [];
     const section = searchParams.get('section');
     const moduleFilter = searchParams.get('module');
     const examName = searchParams.get('exam_name');
@@ -564,31 +625,37 @@ export async function GET(req: NextRequest) {
     const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10));
     const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') || '20', 10)));
 
-    const filtered = questions.filter((q) => {
-      if (section && section !== 'All' && q.section !== section) return false;
-      if (moduleFilter && moduleFilter !== 'All' && q.module !== moduleFilter) return false;
-      if (examName && examName !== 'All' && q.exam_name !== examName) return false;
-      if (difficultyParam && difficultyParam !== 'All') {
-        const diffNum = parseInt(difficultyParam, 10);
-        if (!isNaN(diffNum) && q.difficulty !== diffNum) return false;
-      }
-      if (typeParam && typeParam !== 'All' && q.question_type !== typeParam) return false;
-      if (onlyGraphs) {
-        if (!q.graphs || (Array.isArray(q.graphs) && q.graphs.length === 0)) return false;
-      }
-      if (qQuery) {
-        const matchId = String(q.question_id).includes(qQuery);
-        const matchQuestion = q.question.toLowerCase().includes(qQuery);
-        const matchExam = (q.exam_name || '').toLowerCase().includes(qQuery);
-        const matchExpl = (q.explanations || '').toLowerCase().includes(qQuery);
-        if (!matchId && !matchQuestion && !matchExam && !matchExpl) return false;
-      }
-      return true;
-    });
+    const corpus = cachedSearchCorpus || [];
+    const diffNum = difficultyParam && difficultyParam !== 'All' ? parseInt(difficultyParam, 10) : null;
 
-    const totalMatches = filtered.length;
+    const matchedResults: RawSATQuestion[] = [];
+
+    for (let i = 0; i < corpus.length; i++) {
+      const item = corpus[i];
+      if (section && section !== 'All' && item.section !== section) continue;
+      if (moduleFilter && moduleFilter !== 'All' && item.module !== moduleFilter) continue;
+      if (examName && examName !== 'All' && item.examName !== examName) continue;
+      if (diffNum !== null && !isNaN(diffNum) && item.difficulty !== diffNum) continue;
+      if (typeParam && typeParam !== 'All' && item.type !== typeParam) continue;
+      if (onlyGraphs && !item.hasGraphs) continue;
+
+      if (queryTokens.length > 0) {
+        let allTokensMatch = true;
+        for (let t = 0; t < queryTokens.length; t++) {
+          if (!item.text.includes(queryTokens[t])) {
+            allTokensMatch = false;
+            break;
+          }
+        }
+        if (!allTokensMatch) continue;
+      }
+
+      matchedResults.push(item.raw);
+    }
+
+    const totalMatches = matchedResults.length;
     const startIndex = (page - 1) * limit;
-    const paged = filtered.slice(startIndex, startIndex + limit);
+    const paged = matchedResults.slice(startIndex, startIndex + limit);
 
     return NextResponse.json({
       success: true,

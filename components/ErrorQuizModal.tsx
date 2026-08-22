@@ -24,7 +24,7 @@ import {
 import { SATErrorItem, SATSubject, MasteryStatus } from '@/types/sat';
 import { saveError, recordReview } from '@/lib/db';
 import { gradeStudentResponse, evaluateSATQuestionAnswer } from '@/lib/answerGrading';
-import { isDummyChoices } from '@/lib/questionBank';
+import { isDummyChoices, splitPassageAndPrompt } from '@/lib/questionBank';
 import MathRenderer from './MathRenderer';
 import MarkdownRenderer from './MarkdownRenderer';
 import GraphRenderer from './GraphRenderer';
@@ -163,19 +163,28 @@ export default function ErrorQuizModal({
       ? err.answerChoices!.map((c) => c.text)
       : undefined;
 
-    const fullPrompt =
-      err.passageText &&
-      err.passageText.trim().length > 0 &&
-      err.passageText.trim().toLowerCase() !== 'none' &&
-      !err.questionText.includes(err.passageText.trim().slice(0, 25))
-        ? `${err.passageText}\n\n${err.questionText}`
-        : err.questionText;
+    let passage = err.passageText?.trim() && err.passageText.trim().toLowerCase() !== 'none' ? err.passageText.trim() : undefined;
+    let prompt = err.questionText?.trim() || '';
+
+    if (!passage && prompt) {
+      const split = splitPassageAndPrompt(prompt, err.subject, err.explanation);
+      if (split.passageText && split.questionPrompt) {
+        passage = split.passageText;
+        prompt = split.questionPrompt;
+      }
+    } else if (passage && prompt) {
+      const normPassage = passage.replace(/\s+/g, ' ').trim();
+      const normPrompt = prompt.replace(/\s+/g, ' ').trim();
+      if (normPrompt.startsWith(normPassage)) {
+        prompt = prompt.substring(passage.length).trim();
+      }
+    }
 
     return {
       id: err.id,
       number: idx + 1,
-      passageText: err.passageText?.trim() ? err.passageText.trim() : undefined,
-      questionPrompt: fullPrompt,
+      passageText: passage,
+      questionPrompt: prompt,
       choices,
       correctAnswer: err.correctAnswer,
       isGridIn: !choices || choices.length === 0,
@@ -337,6 +346,24 @@ export default function ErrorQuizModal({
   const totalAnswered = testRecords.size;
   const totalCorrect = Array.from(testRecords.values()).filter((r) => r.isCorrect).length;
   const scorePercent = testDeck.length > 0 ? Math.round((totalCorrect / testDeck.length) * 100) : 0;
+
+  // STAGE 2: ACTIVE TESTING (BLUEBOOK FULLSCREEN)
+  if (stage === 'testing') {
+    return (
+      <div className="fixed inset-0 z-50 bg-white flex flex-col overflow-hidden">
+        <BluebookTestShell
+          title="Error Book Specialized Practice"
+          sectionName={`${filterSubject === 'All' ? 'SAT Error' : filterSubject} Practice Test`}
+          questions={bluebookQuestions}
+          timerSeconds={timerMinutes > 0 ? timerMinutes * 60 : 0}
+          isUntimed={timerMinutes === 0}
+          instantFeedback={examStyle === 'instant'}
+          onFinishTest={handleBluebookFinish}
+          onClose={() => setStage('config')}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 overflow-y-auto animate-in fade-in duration-200">
@@ -537,20 +564,6 @@ export default function ErrorQuizModal({
                 </button>
               </div>
             </div>
-          )}
-
-          {/* STAGE 2: ACTIVE TESTING (BLUEBOOK FULLSCREEN) */}
-          {stage === 'testing' && (
-            <BluebookTestShell
-              title="Specialized Training"
-              sectionName={`${filterSubject} Practice Test`}
-              questions={bluebookQuestions}
-              timerSeconds={timerMinutes > 0 ? timerMinutes * 60 : 0}
-              isUntimed={timerMinutes === 0}
-              instantFeedback={examStyle === 'instant'}
-              onFinishTest={handleBluebookFinish}
-              onClose={onClose}
-            />
           )}
 
           {/* STAGE 3: RESULTS & DIAGNOSTICS */}

@@ -406,6 +406,46 @@ function renderProseWithFormatting(
   return renderInlineProse(prose, baseKey, highlights, onHighlightClick);
 }
 
+// Global KaTeX render cache to eliminate re-rendering overhead and freezing
+const katexCache = new Map<string, string>();
+const MAX_KATEX_CACHE = 5000;
+
+function getCachedKatex(latex: string, isBlock: boolean): string {
+  const cacheKey = `${isBlock ? 'B' : 'I'}:${latex}`;
+  const existing = katexCache.get(cacheKey);
+  if (existing !== undefined) {
+    return existing;
+  }
+
+  let cleanLatex = latex.trim();
+  cleanLatex = cleanLatex.replace(/\\+(?=[0-9])/g, '');
+  cleanLatex = cleanLatex.replace(/(?<!\\)%/g, '\\%');
+  if (!cleanLatex.includes('\\frac') && /\b\d+\/\d+\b/.test(cleanLatex)) {
+    cleanLatex = cleanLatex.replace(/\b(\d+)\/(\d+)\b/g, '\\frac{$1}{$2}');
+  }
+
+  const isMultiLine = isBlock || /\\begin\{(aligned|matrix|cases|gathered|array)\}/i.test(cleanLatex) || cleanLatex.includes('\\\\');
+
+  try {
+    const rendered = katex.renderToString(cleanLatex, {
+      displayMode: isMultiLine,
+      throwOnError: false,
+      output: 'html',
+      strict: false,
+    });
+    if (katexCache.size >= MAX_KATEX_CACHE) {
+      const firstKey = katexCache.keys().next().value;
+      if (firstKey) katexCache.delete(firstKey);
+    }
+    katexCache.set(cacheKey, rendered);
+    return rendered;
+  } catch {
+    const fallback = `<span class="inline font-mono font-medium">${latex.replace(/\\(?=[0-9\s])/g, '')}</span>`;
+    katexCache.set(cacheKey, fallback);
+    return fallback;
+  }
+}
+
 export function convertMathmlToLatex(mathml: string): string {
   if (!mathml) return '';
   let s = mathml;
@@ -442,7 +482,8 @@ export function convertMathmlToLatex(mathml: string): string {
     let res = str;
 
     let prevContainer = '';
-    while (res !== prevContainer) {
+    let cIter = 0;
+    while (res !== prevContainer && cIter++ < 8) {
       prevContainer = res;
       res = res.replace(/<mstyle[^>]*>([\s\S]*?)<\/mstyle>/gi, '$1');
       res = res.replace(/<mpadded[^>]*>([\s\S]*?)<\/mpadded>/gi, '$1');
@@ -458,7 +499,8 @@ export function convertMathmlToLatex(mathml: string): string {
     });
 
     let prev = '';
-    while (res !== prev) {
+    let fIter = 0;
+    while (res !== prev && fIter++ < 8) {
       prev = res;
       res = res.replace(/<mfrac[^>]*>([\s\S]*?)<\/mfrac>/gi, (_, inner) => {
         const parts = splitMathmlNodes(inner);
@@ -470,7 +512,8 @@ export function convertMathmlToLatex(mathml: string): string {
     }
 
     prev = '';
-    while (res !== prev) {
+    let rIter = 0;
+    while (res !== prev && rIter++ < 8) {
       prev = res;
       res = res.replace(/<mroot[^>]*>([\s\S]*?)<\/mroot>/gi, (_, inner) => {
         const parts = splitMathmlNodes(inner);
@@ -484,7 +527,8 @@ export function convertMathmlToLatex(mathml: string): string {
     res = res.replace(/<msqrt[^>]*>([\s\S]*?)<\/msqrt>/gi, (_, inner) => `\\sqrt{${parseNodes(inner)}}`);
 
     prev = '';
-    while (res !== prev) {
+    let ssuIter = 0;
+    while (res !== prev && ssuIter++ < 8) {
       prev = res;
       res = res.replace(/<msubsup[^>]*>([\s\S]*?)<\/msubsup>/gi, (_, inner) => {
         const parts = splitMathmlNodes(inner);
@@ -496,7 +540,8 @@ export function convertMathmlToLatex(mathml: string): string {
     }
 
     prev = '';
-    while (res !== prev) {
+    let suIter = 0;
+    while (res !== prev && suIter++ < 8) {
       prev = res;
       res = res.replace(/<msup[^>]*>([\s\S]*?)<\/msup>/gi, (_, inner) => {
         const parts = splitMathmlNodes(inner);
@@ -508,7 +553,8 @@ export function convertMathmlToLatex(mathml: string): string {
     }
 
     prev = '';
-    while (res !== prev) {
+    let sbIter = 0;
+    while (res !== prev && sbIter++ < 8) {
       prev = res;
       res = res.replace(/<msub[^>]*>([\s\S]*?)<\/msub>/gi, (_, inner) => {
         const parts = splitMathmlNodes(inner);
@@ -545,7 +591,8 @@ export function convertMathmlToLatex(mathml: string): string {
     res = res.replace(/<menclose[^>]*>([\s\S]*?)<\/menclose>/gi, (_, inner) => `\\boxed{${parseNodes(inner)}}`);
 
     prevContainer = '';
-    while (res !== prevContainer) {
+    let clIter = 0;
+    while (res !== prevContainer && clIter++ < 8) {
       prevContainer = res;
       res = res.replace(/<mstyle[^>]*>([\s\S]*?)<\/mstyle>/gi, '$1');
       res = res.replace(/<mrow[^>]*>([\s\S]*?)<\/mrow>/gi, '$1');
@@ -753,12 +800,19 @@ export default function MathRenderer({ text, className = '', highlights, onHighl
     return isPureImageUrl(text.trim());
   }, [text]);
 
+  // Fast-path: If the string is purely plain text with no math, equations, or markup tokens
+  const isSimpleText = useMemo(() => {
+    if (!text || isImage) return false;
+    // If text contains no math indicators or formatting tokens, skip heavy regex pipeline
+    return !/[$`\\<>&^{}[\]|~*±≤≥≠πθ√\n\t]|https?:\/\/|data:image/i.test(text);
+  }, [text, isImage]);
+
   const processedText = useMemo(() => {
-    if (!text || isImage) return '';
+    if (!text || isImage || isSimpleText) return '';
     let formatted = sanitizeSatText(text);
     formatted = formatMathText(formatted);
     return formatted;
-  }, [text, isImage]);
+  }, [text, isImage, isSimpleText]);
 
   if (!text) return null;
 
@@ -778,39 +832,26 @@ export default function MathRenderer({ text, className = '', highlights, onHighl
     );
   }
 
+  // Fast-path render for plain text strings (which makes up 90% of reading passages)
+  if (isSimpleText) {
+    return (
+      <span className={`inline-wrap leading-relaxed ${className}`}>
+        {renderProseWithFormatting(text, 0, highlights, onHighlightClick)}
+      </span>
+    );
+  }
+
   const renderKatex = (latex: string, isBlock = false, key: number) => {
-    let cleanLatex = latex.trim();
-    // Clean any residual stray backslashes before plain digits
-    cleanLatex = cleanLatex.replace(/\\+(?=[0-9])/g, '');
-    cleanLatex = cleanLatex.replace(/(?<!\\)%/g, '\\%');
-    if (!cleanLatex.includes('\\frac') && /\b\d+\/\d+\b/.test(cleanLatex)) {
-      cleanLatex = cleanLatex.replace(/\b(\d+)\/(\d+)\b/g, '\\frac{$1}{$2}');
-    }
+    const html = getCachedKatex(latex, isBlock);
+    const isMultiLine = isBlock || /\\begin\{(aligned|matrix|cases|gathered|array)\}/i.test(latex) || latex.includes('\\\\');
 
-    const isMultiLine = isBlock || /\\begin\{(aligned|matrix|cases|gathered|array)\}/i.test(cleanLatex) || cleanLatex.includes('\\\\');
-
-    try {
-      const html = katex.renderToString(cleanLatex, {
-        displayMode: isMultiLine,
-        throwOnError: false,
-        output: 'html',
-        strict: false,
-      });
-
-      return (
-        <span
-          key={key}
-          className={isMultiLine ? 'block my-2 overflow-x-auto text-center text-inherit font-serif' : 'inline-block px-0.5 align-baseline text-inherit font-serif'}
-          dangerouslySetInnerHTML={{ __html: html }}
-        />
-      );
-    } catch {
-      return (
-        <span key={key} className="inline font-mono text-inherit font-medium">
-          {latex.replace(/\\(?=[0-9\s])/g, '')}
-        </span>
-      );
-    }
+    return (
+      <span
+        key={key}
+        className={isMultiLine ? 'block my-2 overflow-x-auto text-center text-inherit font-serif' : 'inline-block px-0.5 align-baseline text-inherit font-serif'}
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+    );
   };
 
   const tokens: { type: 'mathml' | 'math' | 'prose'; text: string; isBlock?: boolean }[] = [];
@@ -830,7 +871,6 @@ export default function MathRenderer({ text, className = '', highlights, onHighl
         const words = inner.match(/\b[a-zA-Z]{2,}\b/g) || [];
         const nonMathWords = words.filter((w) => !/^(?:sin|cos|tan|log|ln|lim|max|min|det|deg|rad|var|mod|and|or|is|if|for|all|not|ge|le|pm|times|div|frac|sqrt|pi|theta|alpha|beta|gamma|delta|sigma|lambda|mu|phi|omega)$/i.test(w));
         if (nonMathWords.length >= 2 && !inner.includes('\\begin') && !inner.includes('\\text')) {
-          mathRegex.lastIndex = start + 1;
           continue;
         }
       }

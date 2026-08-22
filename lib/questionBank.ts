@@ -243,11 +243,15 @@ export function splitPassageAndPrompt(
     'Which\\s+detail',
     'Which\\s+claim',
     'Which\\s+illustration',
+    'Which\\s+(?:of\\s+the\\s+following|option|phrase|word|excerpt|two)',
     'Based\\s+on\\s+the\\s+(?:text|texts|passage|passages|table|graph|chart)',
     'According\\s+to\\s+the\\s+(?:text|texts|passage|passages|table|speaker|author)',
     'According\\s+to\\s+both\\s+texts',
     'What\\s+does\\s+the\\s+(?:text|texts|speaker|author|narrator|character)',
-    'What\\s+is\\s+the\\s+(?:main|primary)',
+    'What\\s+is\\s+the\\s+(?:main|primary|function|purpose)',
+    'What\\s+best\\s+describes',
+    'How\\s+does\\s+(?:the\\s+author|the\\s+speaker|the\\s+text|Text\\s+[12A-B])',
+    'Why\\s+does\\s+(?:the\\s+author|the\\s+speaker|the\\s+character)',
     'As\\s+used\\s+in\\s+(?:the\\s+text|line\\s+\\d+)',
     'The\\s+(?:primary|main)\\s+purpose',
     'The\\s+author(?:[\'’]s)?\\s+primary',
@@ -289,6 +293,45 @@ export function splitPassageAndPrompt(
   }
 
   return { questionPrompt: formatMathText(cleanText) };
+}
+
+/**
+ * Extracts embedded choices (e.g. (A) ... (B) ... (C) ... (D) ...) from a question prompt.
+ */
+export function extractEmbeddedChoices(text: string): { cleanedPrompt: string; choices: string[] } {
+  if (!text) return { cleanedPrompt: '', choices: [] };
+
+  // Remove horizontal dividers like -----------------------------
+  const cleanInput = text.replace(/(?:\r?\n\s*[-_=—~]{3,}\s*)+(?=(?:\r?\n|\s*\([A-D]\)|\s*[A-D][.)]))/g, '\n');
+
+  // Check if choices section exists (starts with (A) or A. or A))
+  const aMatch = cleanInput.search(/(?:^|\n)\s*(?:\([Aa]\)|[Aa][.)])\s+/);
+  if (aMatch === -1) {
+    return { cleanedPrompt: text, choices: [] };
+  }
+
+  const promptPart = cleanInput.substring(0, aMatch).trim();
+  const choicesPart = cleanInput.substring(aMatch).trim();
+
+  const choices: string[] = [];
+  const regex = /(?:^|\n)\s*(?:\(([A-D])\)|([A-D])[.)])\s+([\s\S]+?)(?=(?:\n\s*(?:\([A-D]\)|[A-D][.)])\s+)|$)/gi;
+  let m: RegExpExecArray | null;
+
+  while ((m = regex.exec(choicesPart)) !== null) {
+    const content = m[3].replace(/[-_=—~]{3,}/g, '').trim();
+    if (content) {
+      choices.push(content);
+    }
+  }
+
+  if (choices.length >= 3 && promptPart.length > 10) {
+    return {
+      cleanedPrompt: promptPart,
+      choices,
+    };
+  }
+
+  return { cleanedPrompt: text, choices: [] };
 }
 
 /**
