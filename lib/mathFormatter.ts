@@ -45,43 +45,55 @@ export function reconstructTablesFromText(text: string): string {
     return text;
   }
 
-  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const clean = normalizeMathUnicode(text);
+  const lines = clean.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   if (lines.length < 4) return text;
 
-  const isNumericValue = (s: string) => {
-    const clean = s.replace(/[\$,%]/g, '').trim();
-    return /^[\-+]?\d+(?:\.\d+)?$/.test(clean) || /^\d+\/\d+$/.test(clean);
+  const isPureNumber = (s: string) => {
+    if (!s) return false;
+    const cleanStr = s.replace(/[\$,%\u00A0\s]/g, '').replace(/,/g, '').trim();
+    return /^[\-+]?\d+(?:\.\d+)?$/.test(cleanStr) || /^\d+\/\d+$/.test(cleanStr);
+  };
+
+  const isNumericOrMathValue = (s: string) => {
+    if (!s) return false;
+    const cleanStr = s.replace(/[\$,%\u00A0\s]/g, '').replace(/,/g, '').trim();
+    if (/^[\-+]?\d+(?:\.\d+)?$/.test(cleanStr) || /^\d+\/\d+$/.test(cleanStr)) return true;
+    if (/^[a-zA-Z]$/.test(cleanStr)) return true; // single variable like a, b, k, n, x, y
+    if (/^[\-+]?\d*[a-zA-Z](?:[\+\-]\d+)?$/.test(cleanStr)) return true; // e.g. 2x, -3k
+    if (/^[\-+]?\d+(?:\.\d+)?%?$/.test(cleanStr)) return true;
+    return false;
   };
 
   const isRowLabel = (s: string) => {
     if (!s) return false;
-    if (s.length > 50) return false;
+    if (s.length > 60) return false;
     if (s.endsWith('?')) return false;
-    if (/^(The|Which|What|How|If|For|In|Adapted|Excerpt)\s+/i.test(s)) return false;
+    if (/^(The|Which|What|How|If|For|In|Adapted|Excerpt|According to)\s+/i.test(s)) return false;
     return true;
   };
 
   const isRowValue = (s: string) => {
     if (!s) return false;
-    if (isNumericValue(s)) return true;
+    if (isNumericOrMathValue(s)) return true;
     if (s.length <= 30 && !s.endsWith('?') && !s.endsWith('.')) return true;
     return false;
   };
 
-  // 1. Detect flattened 2D contingency tables (Row Label + N numbers per row)
+  // 1. Detect flattened 2D contingency tables (Row Label + N numbers/values per row)
   for (let i = 0; i < lines.length; i++) {
     const rows: { label: string; values: string[] }[] = [];
     let currIdx = i;
 
     while (currIdx < lines.length) {
       const label = lines[currIdx];
-      if (!isRowLabel(label) || isNumericValue(label)) {
+      if (!isRowLabel(label) || isPureNumber(label)) {
         break;
       }
 
       let valIdx = currIdx + 1;
       const vals: string[] = [];
-      while (valIdx < lines.length && isNumericValue(lines[valIdx])) {
+      while (valIdx < lines.length && isNumericOrMathValue(lines[valIdx])) {
         vals.push(lines[valIdx]);
         valIdx++;
       }
@@ -149,14 +161,14 @@ export function reconstructTablesFromText(text: string): string {
     if (
       isRowLabel(h1) &&
       isRowLabel(h2) &&
-      !isNumericValue(h1) &&
-      !isNumericValue(h2)
+      !isPureNumber(h1) &&
+      !isPureNumber(h2)
     ) {
       let valIdx = i + 2;
       const pairs: [string, string][] = [];
       while (
         valIdx + 1 < lines.length &&
-        isRowLabel(lines[valIdx]) &&
+        isRowValue(lines[valIdx]) &&
         isRowValue(lines[valIdx + 1])
       ) {
         pairs.push([lines[valIdx], lines[valIdx + 1]]);
@@ -180,6 +192,261 @@ export function reconstructTablesFromText(text: string): string {
 }
 
 /**
+ * Converts MathML elements (<math>, <mrow>, <mfrac>, <msqrt>, <msup>, etc.) into standard KaTeX LaTeX syntax.
+ */
+export function convertMathmlToLatex(mathml: string): string {
+  if (!mathml) return '';
+  let s = mathml;
+
+  s = s.replace(/<br\s*\/?>/gi, ' ')
+       .replace(/<\/?(span|strong|em|b|i|u|div|p)[^>]*>/gi, '');
+
+  s = s.replace(/^<math[^>]*&gt;/i, '<math>')
+       .replace(/^<math\s*xmlns[^>]*>/i, '<math>')
+       .replace(/&gt;/g, '>')
+       .replace(/&lt;/g, '<');
+
+  s = s.replace(/&amp;/g, '&')
+       .replace(/&quot;/g, '"')
+       .replace(/&apos;/g, "'")
+       .replace(/&#177;/g, '±')
+       .replace(/&#8804;/g, '≤')
+       .replace(/&#8805;/g, '≥')
+       .replace(/&#8800;/g, '≠')
+       .replace(/&#x([0-9a-fA-F]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+       .replace(/&#([0-9]+);/g, (_, dec) => String.fromCharCode(parseInt(dec, 10)));
+
+  s = s.replace(/[\u2061\u2062\u2063\u2064\u200B\uFEFF]/g, '');
+  s = s.replace(/\\n/g, ' ').replace(/[\r\n]+/g, ' ');
+  s = s.replace(/，/g, ', ').replace(/、/g, ', ');
+
+  s = s.replace(/<semantics[^>]*>([\s\S]*?)<\/semantics>/gi, '$1');
+  s = s.replace(/<annotation[^>]*>[\s\S]*?<\/annotation>/gi, '');
+  s = s.replace(/<mspace[^>]*>/gi, ' ');
+
+  s = s.replace(/^<math[^>]*>/i, '').replace(/<\/math>$/i, '');
+
+  function splitMathmlNodes(html: string): string[] {
+    if (!html) return [];
+    const results: string[] = [];
+    let depth = 0;
+    let current = '';
+    const regex = /(<\/?([a-zA-Z0-9]+)[^>]*>|[^<]+)/g;
+    let match;
+
+    while ((match = regex.exec(html)) !== null) {
+      const token = match[0];
+      const tag = match[2];
+      const isClose = token.startsWith('</');
+      const isSelfClosing = token.endsWith('/>');
+
+      if (tag && !isSelfClosing) {
+        if (isClose) {
+          depth--;
+          current += token;
+          if (depth === 0) {
+            results.push(current.trim());
+            current = '';
+          }
+        } else {
+          depth++;
+          current += token;
+        }
+      } else if (depth > 0) {
+        current += token;
+      } else if (token.trim()) {
+        results.push(token.trim());
+      }
+    }
+
+    if (current.trim()) {
+      results.push(current.trim());
+    }
+
+    return results.filter(Boolean);
+  }
+
+  function parseNodes(str: string): string {
+    if (!str) return '';
+    let res = str;
+
+    let prevContainer = '';
+    let cIter = 0;
+    while (res !== prevContainer && cIter++ < 8) {
+      prevContainer = res;
+      res = res.replace(/<mstyle[^>]*>([\s\S]*?)<\/mstyle>/gi, '$1');
+      res = res.replace(/<mpadded[^>]*>([\s\S]*?)<\/mpadded>/gi, '$1');
+    }
+
+    res = res.replace(/<mtable[^>]*>([\s\S]*?)<\/mtable>/gi, (_, inner) => {
+      const rows = inner.match(/<mtr[^>]*>[\s\S]*?<\/mtr>/gi) || [inner];
+      const latexRows = rows.map((r: string) => {
+        const cells = r.match(/<mtd[^>]*>[\s\S]*?<\/mtd>/gi) || [r];
+        return cells.map((c: string) => parseNodes(c.replace(/<\/?mtd[^>]*>/gi, ''))).join(' & ');
+      }).join(' \\\\ ');
+      return `\\begin{aligned} ${latexRows} \\end{aligned}`;
+    });
+
+    let prev = '';
+    let fIter = 0;
+    while (res !== prev && fIter++ < 8) {
+      prev = res;
+      res = res.replace(/<mfrac[^>]*>([\s\S]*?)<\/mfrac>/gi, (_, inner) => {
+        const parts = splitMathmlNodes(inner);
+        if (parts.length >= 2) {
+          return `\\frac{${parseNodes(parts[0])}}{${parseNodes(parts[1])}}`;
+        }
+        return `\\frac{${parseNodes(inner)}}{}`;
+      });
+    }
+
+    prev = '';
+    let rIter = 0;
+    while (res !== prev && rIter++ < 8) {
+      prev = res;
+      res = res.replace(/<mroot[^>]*>([\s\S]*?)<\/mroot>/gi, (_, inner) => {
+        const parts = splitMathmlNodes(inner);
+        if (parts.length >= 2) {
+          return `\\sqrt[${parseNodes(parts[1])}]{${parseNodes(parts[0])}}`;
+        }
+        return `\\sqrt{${parseNodes(inner)}}`;
+      });
+    }
+
+    res = res.replace(/<msqrt[^>]*>([\s\S]*?)<\/msqrt>/gi, (_, inner) => `\\sqrt{${parseNodes(inner)}}`);
+
+    prev = '';
+    let ssuIter = 0;
+    while (res !== prev && ssuIter++ < 8) {
+      prev = res;
+      res = res.replace(/<msubsup[^>]*>([\s\S]*?)<\/msubsup>/gi, (_, inner) => {
+        const parts = splitMathmlNodes(inner);
+        if (parts.length >= 3) {
+          return `{${parseNodes(parts[0])}}_{${parseNodes(parts[1])}}^{${parseNodes(parts[2])}}`;
+        }
+        return inner;
+      });
+    }
+
+    prev = '';
+    let suIter = 0;
+    while (res !== prev && suIter++ < 8) {
+      prev = res;
+      res = res.replace(/<msup[^>]*>([\s\S]*?)<\/msup>/gi, (_, inner) => {
+        const parts = splitMathmlNodes(inner);
+        if (parts.length >= 2) {
+          return `{${parseNodes(parts[0])}}^{${parseNodes(parts[1])}}`;
+        }
+        return inner;
+      });
+    }
+
+    prev = '';
+    let sbIter = 0;
+    while (res !== prev && sbIter++ < 8) {
+      prev = res;
+      res = res.replace(/<msub[^>]*>([\s\S]*?)<\/msub>/gi, (_, inner) => {
+        const parts = splitMathmlNodes(inner);
+        if (parts.length >= 2) {
+          return `{${parseNodes(parts[0])}}_{${parseNodes(parts[1])}}`;
+        }
+        return inner;
+      });
+    }
+
+    res = res.replace(/<mfenced[^>]*>([\s\S]*?)<\/mfenced>/gi, (_, inner) => `\\left(${parseNodes(inner)}\\right)`);
+
+    res = res.replace(/<mover[^>]*>([\s\S]*?)<\/mover>/gi, (_, inner) => {
+      const parts = splitMathmlNodes(inner);
+      if (parts.length >= 2) {
+        return `\\overline{${parseNodes(parts[0])}}`;
+      }
+      return parseNodes(inner);
+    });
+
+    res = res.replace(/<munder[^>]*>([\s\S]*?)<\/munder>/gi, (_, inner) => {
+      const parts = splitMathmlNodes(inner);
+      if (parts.length >= 2) {
+        return `\\underline{${parseNodes(parts[0])}}`;
+      }
+      return parseNodes(inner);
+    });
+
+    res = res.replace(/<mrow[^>]*>([\s\S]*?)<\/mrow>/gi, (_, inner) => parseNodes(inner));
+
+    res = res.replace(/<mo[^>]*>([\s\S]*?)<\/mo>/gi, (_, text) => {
+      const t = text.trim();
+      if (t === '±') return '\\pm ';
+      if (t === '≤' || t === '&le;') return '\\le ';
+      if (t === '≥' || t === '&ge;') return '\\ge ';
+      if (t === '≠' || t === '&ne;') return '\\neq ';
+      if (t === '×') return '\\times ';
+      if (t === '÷') return '\\div ';
+      if (t === '·' || t === '⋅') return '\\cdot ';
+      if (t === '−') return '-';
+      if (t === '°') return '^\\circ ';
+      if (t === 'π') return '\\pi ';
+      if (t === 'θ') return '\\theta ';
+      if (t === '√') return '\\sqrt{}';
+      if (t === '<' || t === '&lt;') return ' \\lt ';
+      if (t === '>' || t === '&gt;') return ' \\gt ';
+      if (t === '%') return '\\%';
+      if (t === '$') return '\\$';
+      if (t === '△') return '\\triangle ';
+      if (t === '∠') return '\\angle ';
+      return t;
+    });
+
+    res = res.replace(/<mi[^>]*>([\s\S]*?)<\/mi>/gi, (_, text) => {
+      const t = text.trim();
+      if (t === 'π') return '\\pi ';
+      if (t === 'θ') return '\\theta ';
+      if (t === 'α') return '\\alpha ';
+      if (t === 'β') return '\\beta ';
+      if (t === 'λ') return '\\lambda ';
+      if (t === 'μ') return '\\mu ';
+      if (t === 'Δ') return '\\Delta ';
+      if (t === '%') return '\\%';
+      if (t === '$') return '\\$';
+      if (t === '△') return '\\triangle ';
+      if (t === '∠') return '\\angle ';
+      if (t === 'Ⅰ') return '\\text{I}';
+      if (t === 'Ⅱ') return '\\text{II}';
+      if (t === 'Ⅲ') return '\\text{III}';
+      if (t === 'Ⅳ') return '\\text{IV}';
+      return t;
+    });
+
+    res = res.replace(/<mn[^>]*>([\s\S]*?)<\/mn>/gi, (_, text) => text.trim().replace(/(?<!\\)%/g, '\\%').replace(/(?<!\\)\$/g, '\\$'));
+    res = res.replace(/<mtext[^>]*>([\s\S]*?)<\/mtext>/gi, (_, text) => `\\text{${text.replace(/(?<!\\)\$/g, '\\$').replace(/(?<!\\)%/g, '\\%')}}`);
+    res = res.replace(/<[^>]+>/g, '');
+
+    return res.trim();
+  }
+
+  let result = parseNodes(s);
+  result = result
+    .replace(/&lt;/g, ' \\lt ')
+    .replace(/&gt;/g, ' \\gt ')
+    .replace(/(?<!\\)</g, ' \\lt ')
+    .replace(/(?<!\\)>/g, ' \\gt ')
+    .replace(/\\lt\s*=/g, '\\le ')
+    .replace(/\\gt\s*=/g, '\\ge ')
+    .replace(/(?<!\\)%/g, '\\%')
+    .replace(/(?<!\\)\$/g, '\\$')
+    .replace(/△/g, '\\triangle ')
+    .replace(/∠/g, '\\angle ')
+    .replace(/\s+/g, ' ')
+    .replace(/\(\s+/g, '(')
+    .replace(/\s+\)/g, ')')
+    .replace(/\{\s+/g, '{')
+    .replace(/\s+\}/g, '}')
+    .trim();
+
+  return result;
+}
+
+/**
  * Valid LaTeX command whitelist pattern
  */
 const VALID_LATEX_COMMANDS = /\\(?:frac|sqrt|left|right|begin|end|alpha|beta|gamma|delta|theta|pi|sigma|lambda|mu|phi|Delta|Omega|text|textbf|textit|underline|boxed|le|ge|ne|neq|equiv|pm|mp|times|div|cdot|circ|angle|triangle|parallel|perp|cong|sim|approx|to|Rightarrow|Leftrightarrow|infty|sum|int|lim|sin|cos|tan|log|ln|sec|csc|cot|matrix|aligned|cases|gathered|array|overline|underset|[\$\%_\#\&\{\}])/;
@@ -194,7 +461,24 @@ export function sanitizeSatText(text: string): string {
   // Normalize mathematical unicode (𝑥 -> x, − -> -, etc.)
   s = normalizeMathUnicode(s);
 
-  // 1. Decode HTML XML entities
+  // Normalize XML namespaces & MathML blocks to standard <math>...</math>
+  s = s.replace(/<mml:([a-zA-Z]+)[^>]*>/gi, '<$1>').replace(/<\/mml:([a-zA-Z]+)>/gi, '</$1>');
+  s = s.replace(/<m:([a-zA-Z]+)[^>]*>/gi, '<$1>').replace(/<\/m:([a-zA-Z]+)>/gi, '</$1>');
+
+  // 1. Convert MathML immediately FIRST before stripping tags
+  if (s.includes('<math')) {
+    s = s.replace(/<math[\s\S]*?<\/math>/gi, (m) => {
+      const latex = convertMathmlToLatex(m);
+      return `$${latex}$`;
+    });
+  }
+
+  // Repair control character corruptions (e.g. \frac becoming ASCII 12 \x0c, \begin becoming ASCII 8 \x08)
+  s = s.replace(/\x0crac/g, '\\frac').replace(/\x0c/g, '\\f');
+  s = s.replace(/\x08egin/g, '\\begin').replace(/\x08/g, '\\b');
+  s = s.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+
+  // 2. Decode HTML XML entities
   s = s.replace(/&(?:#36|#x24|dollar);/gi, '$');
   s = s.replace(/&amp;/g, '&');
   s = s.replace(/&lt;/g, '<');
@@ -205,15 +489,15 @@ export function sanitizeSatText(text: string): string {
   // Remove leading question numbering like "1. Text 1" -> "Text 1"
   s = s.replace(/^\d+[\.\s\-]+\s*(?=(?:Text\s*[12AB]|Passage\s*[12AB]|The following|Adapted|In the|Excerpt))/i, '');
 
-  // 2. Strip XML/Word processing junk tags
+  // 3. Strip XML/Word processing junk tags
   s = s.replace(/<\?xml[^>]*\?>/gi, '');
   s = s.replace(/<!DOCTYPE[^>]*>/gi, '');
   s = s.replace(/<w:[^>]+>[\s\S]*?<\/w:[^>]+>/gi, '');
-  s = s.replace(/<\/?(?:w|m|o|v):[^>]*>/gi, '');
-  s = s.replace(/<mml:([a-zA-Z]+)[^>]*>/gi, '<$1>');
-  s = s.replace(/<\/mml:([a-zA-Z]+)>/gi, '</$1>');
+  s = s.replace(/<\/?(?:w|o|v):[^>]*>/gi, '');
 
-  // 3. Clean broken corrupted tags like </</ or <</ or </u</u
+  // 4. Clean broken corrupted tags like </</ or <</ or </u</u or spaced tags < u >
+  s = s.replace(/<[\s\\]*u[\s\\]*>/gi, '<u>');
+  s = s.replace(/<[\s\\]*\/\s*u[\s\\]*>/gi, '</u>');
   s = s.replace(/<\/\s*<\s*\/?/g, '</');
   s = s.replace(/<+\s*<+\s*\/?/g, '<');
   s = s.replace(/<\/u\s*<\/u>/gi, '</u>');
@@ -223,25 +507,61 @@ export function sanitizeSatText(text: string): string {
   s = s.replace(/(?:^|\n)\s*<u>\s*(Text\s*[12AB]|Passage\s*[12AB])\s*<\/u>/gi, '$1');
   s = s.replace(/(?:^|\n)\s*<u>\s*(Text\s*[12AB]|Passage\s*[12AB])\b/gi, '$1 <u>');
 
-  // 4. Remove stray OCR dollar signs embedded in English words (e.g. "Which$ choice" -> "Which choice")
+  // 5. Fix double dollar currency typos (e.g. "$$ 6.50$", "$$ 300$", "$$ 1.50$") and $\text{$70.00}$
+  s = s.replace(/\$\$\s*([0-9]+(?:\,[0-9]+)*(?:\.[0-9]+)?)\$?/g, (m, amt) => '\\$' + amt);
+  s = s.replace(/\\text\{\$([0-9]+(?:\,[0-9]+)*(?:\.[0-9]+)?)\}/g, (m, amt) => '\\text{\\\$' + amt + '}');
+
+  // Remove stray OCR dollar signs embedded in English words (e.g. "Which$ choice" -> "Which choice")
   s = s.replace(/\b([A-Za-z]+)\$([A-Za-z]*)\b/g, '$1 $2').replace(/[ \t]+/g, ' ');
 
-  // 5. Remove stray backslashes before numbers, spaces, or OCR typos
+  // Automatically detect and escape currency dollar signs (e.g., $79, $8.75, $100, $1,200.50, $28 million)
+  let currencyChanged = true;
+  let currencyPasses = 0;
+  while (currencyChanged && currencyPasses < 10) {
+    currencyChanged = false;
+    currencyPasses++;
+    s = s.replace(/(?<!\\)\$([0-9]+(?:\,[0-9]+)*(?:\.[0-9]+)?[\s\S]*?)(?<!\\)\$/g, (full, inner) => {
+      const startNumMatch = inner.match(/^([0-9]+(?:\,[0-9]+)*(?:\.[0-9]+)?)([\s\S]*)/);
+      if (startNumMatch) {
+        const rest = startNumMatch[2];
+        const hasMathSyntax = /[\\=\^_\{\}\+\-\*\/\<\>]/.test(rest);
+        const words = rest.match(/\b[a-zA-Z]{2,}\b/g) || [];
+        if (!hasMathSyntax && words.length >= 1) {
+          currencyChanged = true;
+          return '\\$' + inner + '$';
+        }
+      }
+      return full;
+    });
+  }
+
+  // Escape unescaped currency dollar signs before numbers (e.g. $79, $8.75, $100) not followed by math delimiters
+  s = s.replace(/(?<!\\)\$([0-9]+(?:\,[0-9]+)*(?:\.[0-9]+)?\b)(?!\$|\s*\\|\s*[\+\-\*\/\=\^\_\{\}\(<=>])/g, (m, g1) => {
+    return '\\$' + g1;
+  });
+
+  // Protect double backslash LaTeX linebreaks (\\\\ or \\) before stripping stray single backslashes
+  s = s.replace(/\\\\/g, '___LATEX_LINEBREAK___');
+
+  // 6. Remove stray backslashes before numbers, spaces, or OCR typos outside math commands
   s = s.replace(/\\+\s+(?=[0-9A-Za-z<>=])/g, '');
   s = s.replace(/\\+(?=[0-9])/g, '');
   s = s.replace(/\\+(?=\s*[,.\?!:;])/g, '');
 
-  // 6. Remove isolated backslashes that are not part of valid LaTeX commands
+  // 7. Remove isolated backslashes that are not part of valid LaTeX commands
   s = s.replace(/\\(?![a-zA-Z\$\%_\#\&\{\}])/g, '');
 
-  // 7. Fix OCR punctuation spacing
+  // Restore LaTeX double backslash linebreaks
+  s = s.replace(/___LATEX_LINEBREAK___/g, ' \\\\ ');
+
+  // 8. Fix OCR punctuation spacing
   s = s.replace(/[ \t]+([,\.\;\:\?\!])/g, '$1');
   s = s.replace(/,([A-Za-z0-9])/g, ', $1');
 
   // Fix missing space after sentence-ending punctuation
   s = s.replace(/(?<!\b(?:e\.g|i\.e|U\.S|A\.M|P\.M|Dr|Mr|Mrs|Ms|vs|St|Vol|No|Fig|approx)\.)([.!?]["”’']?)(?=[A-Za-z"“‘])/g, '$1 ');
 
-  // 8. Safely normalize underline and ins tags
+  // 9. Safely normalize underline and ins tags
   s = s.replace(/<[\s\r\n\\]*\/\s*(?:u|ins)[\s\r\n\\]*>/gi, '</u>');
   s = s.replace(/<[\s\r\n\\]*(?:u|ins)\b[^>]*>/gi, '<u>');
   s = s.replace(/<[\/\\]+u\b[^>]*>/gi, '</u>');
@@ -255,10 +575,10 @@ export function sanitizeSatText(text: string): string {
   s = s.replace(/([^ \n\t"“'‘(\[{])<u\b([^>]*)>/gi, '$1 <u$2>');
   s = s.replace(/<\/u\s*>([A-Za-z0-9"“'‘(\[{])/gi, '</u> $1');
 
-  // 9. Reconstruct tables
+  // 10. Reconstruct tables
   s = reconstructTablesFromText(s);
 
-  // 10. Balance unclosed or stray tags
+  // 11. Balance unclosed or stray tags
   const openCount = (s.match(/<u\b[^>]*>/gi) || []).length;
   const closeCount = (s.match(/<\/u>/gi) || []).length;
   if (openCount > closeCount) {
@@ -325,17 +645,32 @@ export function formatMathText(rawText: string): string {
     s = s.replace(/\\n/g, '\n');
   }
 
+  // 1. Convert any remaining MathML blocks directly into LaTeX
+  if (s.includes('<math')) {
+    s = s.replace(/<math[\s\S]*?<\/math>/gi, (m) => {
+      const latex = convertMathmlToLatex(m);
+      return `$${latex}$`;
+    });
+  }
+
+  // 2. Protect existing math blocks ($...$ and $$...$$) before prose/inequality operations
+  const protectedMath: string[] = [];
+  s = s.replace(/(\$\$[\s\S]*?\$\$|(?<!\\)\$[^\$\n]+?(?<!\\)\$)/g, (match) => {
+    protectedMath.push(match);
+    return `___SAT_MATH_BLOCK_${protectedMath.length - 1}___`;
+  });
+
   // Reconstruct flattened table structures into markdown tables
   s = reconstructTablesFromText(s);
 
-  // 1. Protect currency dollar amounts with exact captured values
+  // 3. Protect currency dollar amounts with exact captured values
   s = s.replace(/(?<!\\)\$(\d+(?:,\d{3})*(?:\.\d{1,2})?)\b/g, (_, amt) => `\\$${amt}`);
 
-  // 2. Spacing around HTML underline tags
+  // 4. Spacing around HTML underline tags
   s = s.replace(/<\/u>([A-Za-z0-9])/g, '</u> $1');
   s = s.replace(/([A-Za-z0-9])<u>/g, '$1 <u>');
 
-  // 3. Paired passage headers (Text 1, Text 2, Passage 1, Passage 2)
+  // 5. Paired passage headers (Text 1, Text 2, Passage 1, Passage 2)
   s = s.replace(/(?:^|\n\n|\n)\s*(?:<u>\s*)?(Text\s*[12AB]|Passage\s*[12AB])(?:\s*<\/u>)?(?:\s*[:\-–]?\s*)([A-Za-z0-9"“'‘<])/g, (_, title, nextChar) => {
     return `\n\n**${title.trim()}**\n\n${nextChar}`;
   });
@@ -344,54 +679,33 @@ export function formatMathText(rawText: string): string {
   // If <u> sits right before **Text 1**, move <u> after **Text 1**
   s = s.replace(/<u>\s*(\*\*(?:Text\s*[12AB]|Passage\s*[12AB])\*\*)\s*/gi, '$1\n\n<u>');
 
-  // 4. Separate SAT introductory lead-in sentences
+  // 6. Separate SAT introductory lead-in sentences
   s = s.replace(
     /(^|\n\n|\n)((?:The following (?:text|passage)|This (?:text|passage)|Excerpt|Adapted from|In the following (?:text|passage))\s+(?:is|was|has been|from|adapted|excerpted|taken)[^\n]+?[\.\?!]["”']?)\s*(?=[A-Z"“])/gi,
     '$1$2\n\n'
   );
 
-  // 5. Separate copyright notes
+  // 7. Separate copyright notes
   s = s.replace(/([^\n])\s*((?:[©\u00A9]|\([cC]\)|Copyright\b)[^\n]*)/gi, '$1\n\n$2');
 
-  // 6. Bullet points for student notes
+  // 8. Bullet points for student notes
   s = s.replace(/((?:following\s+)?notes\s*[:：])\s*/gi, '$1\n\n');
   s = s.replace(/(?:^|\n)\s*[•\u2022▪\u25AA‣\u2023◦\u25E6⁃\u2043・\u30FB∙\u2219·\u00B7]\s*/g, '\n* ');
   s = s.replace(/([^\n])\s+[•\u2022▪\u25AA‣\u2023◦\u25E6⁃\u2043・\u30FB∙\u2219·\u00B7]\s*/g, '$1\n* ');
 
-  // 7. Unwrap entire OCR question prompts mistakenly wrapped in single outer $ ... $
+  // 9. Unwrap entire OCR question prompts mistakenly wrapped in single outer $ ... $
   s = s.replace(/^\s*\$([^\$]+?\b(?:What is|Which of the following|Find the value|What value|Calculate|Solve for|How many)\b[^\$]+)\$\s*$/i, (match, inner) => {
     if (inner.includes('\\begin') || inner.includes('\\text')) return match;
     return inner.trim();
   });
 
-  // 8. Format & isolate GFM markdown tables with double newlines around table block and single newlines inside
+  // 10. Format & normalize GFM markdown tables with proper spacing
   if (s.includes('|')) {
-    // A. Remove multiple blank lines between consecutive table rows
-    s = s.replace(/(\|[^\n]*\|)(?:\s*\n\s*)+(\|[^\n]*\|)/g, (match) => {
-      let res = match;
-      while (/(\|[^\n]*\|)\s*\n\s*(\|[^\n]*\|)/.test(res)) {
-        res = res.replace(/(\|[^\n]*\|)\s*\n\s*(\|[^\n]*\|)/g, '$1\n$2');
-      }
-      return res;
-    });
-
-    // B. Ensure alignment separator row exists after the first header row if missing
-    s = s.replace(/(\|[^\n]+\|)\n(\|[^\n]+\|)/g, (match, r1, r2) => {
-      const cleanR2 = r2.replace(/[^|\-:]/g, '');
-      if (/^\|[\s:\-]+\|$/.test(cleanR2)) {
-        return match;
-      }
-      const r1Cells = r1.slice(1, -1).split('|').length;
-      const separator = '| ' + Array(r1Cells).fill(':---').join(' | ') + ' |';
-      return `${r1}\n${separator}\n${r2}`;
-    });
-
-    // C. Isolate table block from prose text before and after with double newlines
-    s = s.replace(/([^\n|])\n*(\|[^\n]+\|)/g, '$1\n\n$2');
-    s = s.replace(/(\|[^\n]+\|)\n*([^\n|])/g, '$1\n\n$2');
+    s = s.replace(/(?<=\|[^\n]*)\n\s*\n+(?=\s*\|)/g, '\n');
+    s = s.replace(/^(\|(?::?---+:?\|)+)$/gm, (match) => match);
   }
 
-  // 9. Fix OCR stripped inequality choices & prompts
+  // 11. Fix OCR stripped inequality choices & prompts in prose
   s = s.replace(/\bg\(x\)\s*f\(x\)\b/g, '$g(x) \\lt f(x)$');
   s = s.replace(/^x\s+h$/i, '$x \\lt h$');
   s = s.replace(/^h\s+x\s+k$/i, '$h \\lt x \\lt k$');
@@ -402,25 +716,58 @@ export function formatMathText(rawText: string): string {
   s = s.replace(/\bwhere\s+10\s*n\s*50\b/gi, 'where $10 \\le n \\le 50$');
   s = s.replace(/\b10\s*n\s*50\b/gi, '$10 \\le n \\le 50$');
 
-  // 10. Format standalone inequalities like "x > k", "x < h", "h < x < k" into math if not already wrapped
-  s = s.replace(/^([A-Za-z0-9_]+)\s*([<>]=?|\\(?:le|ge|ne|neq))\s*([A-Za-z0-9_]+)$/g, (_, v1, op, v2) => {
-    let cleanOp = op === '<' ? '\\lt ' : op === '>' ? '\\gt ' : op;
+  // 12. Format compound inequalities like "2 < x < 5", "-3 < 2x + 1 < 7", "h < x < k", "0 <= a <= b <= 1" into math
+  const compoundInequalityPattern = /(?<![\$a-zA-Z0-9\\])(?:[\-+]?\d+(?:\.\d+)?|[a-zA-Z0-9_\(\)]+)\s*(?:<=|>=|<|>|\\le|\\ge)\s*(?:[\-+]?\d*(?:[a-zA-Z0-9_]|\([^\)]+\))*(?:\s*[\+\-]\s*[a-zA-Z0-9_]+)?|[a-zA-Z0-9_\(\)]+)\s*(?:<=|>=|<|>|\\le|\\ge)\s*(?:[\-+]?\d+(?:\.\d+)?|[a-zA-Z0-9_\(\)]+)(?:\s*(?:<=|>=|<|>|\\le|\\ge)\s*(?:[\-+]?\d+(?:\.\d+)?|[a-zA-Z0-9_\(\)]+))?(?![\$a-zA-Z0-9\\])/g;
+
+  s = s.replace(compoundInequalityPattern, (m) => {
+    let clean = m.trim();
+    clean = clean.replace(/<=/g, ' \\le ').replace(/>=/g, ' \\ge ').replace(/</g, ' \\lt ').replace(/>/g, ' \\gt ');
+    clean = clean.replace(/\s+/g, ' ');
+    return `$${clean}$`;
+  });
+
+  // 13. Format standalone simple inequalities like "x > k", "x < h", "y >= -2" into math if not already wrapped
+  const mathVars = 'x|y|z|a|b|c|k|h|m|n|p|q|r|s|t|u|v|w|f\\(x\\)|g\\(x\\)|h\\(x\\)|p\\(x\\)';
+  const simpleIneqRegex = new RegExp(`(?<![\\$a-zA-Z0-9\\\\])\\b(${mathVars}|[\\-+]?\\d+(?:\\.\\d+)?)\\s*([<>]=?|\\\\(?:le|ge|ne|neq))\\s*(${mathVars}|[\\-+]?\\d+(?:\\.\\d+)?)\\b(?![\\$a-zA-Z0-9\\\\])`, 'gi');
+
+  s = s.replace(simpleIneqRegex, (_, v1, op, v2) => {
+    let cleanOp = op === '<' ? '\\lt ' : op === '>' ? '\\gt ' : op === '<=' ? '\\le ' : op === '>=' ? '\\ge ' : op;
     return `$${v1} ${cleanOp} ${v2}$`;
   });
-  s = s.replace(/^([A-Za-z0-9_]+)\s*([<>]=?|\\(?:le|ge))\s*([A-Za-z0-9_]+)\s*([<>]=?|\\(?:le|ge))\s*([A-Za-z0-9_]+)$/g, (_, v1, op1, v2, op2, v3) => {
-    let cleanOp1 = op1 === '<' ? '\\lt ' : op1 === '>' ? '\\gt ' : op1;
-    let cleanOp2 = op2 === '<' ? '\\lt ' : op2 === '>' ? '\\gt ' : op2;
-    return `$${v1} ${cleanOp1} ${v2} ${cleanOp2} ${v3}$`;
+
+  // 14. Restore protected math blocks
+  s = s.replace(/___SAT_MATH_BLOCK_(\d+)___/g, (_, idx) => protectedMath[parseInt(idx, 10)] || '');
+
+  // Ensure systems of equations have line breaks \\ between equations in \begin{aligned}
+  s = s.replace(/(\\begin\{(?:aligned|cases|array)\}[\s\S]*?\\end\{(?:aligned|cases|array)\})/gi, (block) => {
+    const lines = block.split(/\\\\/);
+    const updatedLines = lines.map((line) => {
+      return line.replace(/([0-9a-zA-Z\)\}\]\$\+\-\*\/])\s+([a-zA-Z0-9_\(\)]+\s*(?:&=|=))/g, '$1 \\\\ $2');
+    });
+    return updatedLines.join(' \\\\ ');
   });
 
-  // 11. Protect KaTeX math blocks ($...$) by replacing raw < and > with \\lt and \\gt to prevent rehypeRaw HTML tag stripping
+  if (!s.includes('\\begin{aligned}') && /\b[fghp]\(x\)\s*=\s*[^\n]+?\b[fghp]\(x\)\s*=\s*/i.test(s)) {
+    s = s.replace(/(\b[fghp]\(x\)\s*=\s*[^\n]+?)\s+(\b[fghp]\(x\)\s*=\s*[^\n]+)/gi, '$$\\begin{aligned} $1 \\\\ $2 \\end{aligned}$$');
+  }
+
+  // Un-embed <u> and </u> tags from inside math blocks so HTML tags are never converted to KaTeX \lt u \gt
+  s = s.replace(/\$([^\$]*?)<u\b[^>]*>([\s\S]*?)<\/u>([^\$]*?)\$/gi, (_, p1, inner, p2) => {
+    const cleanP1 = p1.trim() ? `$${p1.trim()}$ ` : '';
+    const cleanP2 = p2.trim() ? ` $${p2.trim()}$` : '';
+    return `${cleanP1}<u>${inner}</u>${cleanP2}`;
+  });
+
+  // 15. Protect KaTeX math blocks ($...$) by replacing raw < and > with \\lt and \\gt to prevent HTML/KaTeX parse errors
   s = s.replace(/\$([^\$]+)\$/g, (_, inner) => {
-    const cleanInner = inner.replace(/</g, '\\lt ').replace(/>/g, '\\gt ');
+    if (/<u\b|<\/u>/i.test(inner)) {
+      return `$${inner}$`;
+    }
+    let cleanInner = inner.replace(/&lt;/g, ' \\lt ').replace(/&gt;/g, ' \\gt ');
+    cleanInner = cleanInner.replace(/(?<!\\)</g, ' \\lt ').replace(/(?<!\\)>/g, ' \\gt ');
+    cleanInner = cleanInner.replace(/\\lt\s*=/g, '\\le ').replace(/\\gt\s*=/g, '\\ge ');
     return `$${cleanInner}$`;
   });
-
-  // Auto-wrap LaTeX relational expressions outside $ ... $ into inline math
-  s = s.replace(/(?<!\$)(?<!\$\S)\b(?:[a-zA-Z0-9\(\)]+\s*)?\\(?:le|ge|ne|neq)\s*(?:[a-zA-Z0-9\(\)]+)(?!\$)/g, (m) => `$${m.trim()}$`);
 
   return s;
 }

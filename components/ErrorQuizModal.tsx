@@ -166,17 +166,19 @@ export default function ErrorQuizModal({
     let passage = err.passageText?.trim() && err.passageText.trim().toLowerCase() !== 'none' ? err.passageText.trim() : undefined;
     let prompt = err.questionText?.trim() || '';
 
-    if (!passage && prompt) {
-      const split = splitPassageAndPrompt(prompt, err.subject, err.explanation);
-      if (split.passageText && split.questionPrompt) {
-        passage = split.passageText;
-        prompt = split.questionPrompt;
-      }
+    // Always run splitPassageAndPrompt to ensure reading questions have distinct passage & prompt
+    const split = splitPassageAndPrompt(prompt, err.subject, err.explanation);
+    if (split.passageText && split.questionPrompt) {
+      passage = passage || split.passageText;
+      prompt = split.questionPrompt;
     } else if (passage && prompt) {
       const normPassage = passage.replace(/\s+/g, ' ').trim();
       const normPrompt = prompt.replace(/\s+/g, ' ').trim();
       if (normPrompt.startsWith(normPassage)) {
         prompt = prompt.substring(passage.length).trim();
+      } else if (normPrompt.includes(normPassage)) {
+        const idx = normPrompt.indexOf(normPassage);
+        prompt = normPrompt.substring(idx + normPassage.length).trim();
       }
     }
 

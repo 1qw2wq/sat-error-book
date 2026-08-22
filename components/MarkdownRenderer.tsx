@@ -32,18 +32,29 @@ function extractStringFromChildren(node: React.ReactNode): string {
 function escapeNonHtmlAngleBrackets(str: string): string {
   if (!str) return '';
   const validHtmlTagRegex = /<\/?(?:u|ins|b|strong|em|i|math|annotation|semantics|mrow|mfrac|msup|msub|msubsup|mroot|msqrt|mtable|mtr|mtd|mtext|mo|mi|mn|mspace|mfenced|mover|munder|menclose|mstyle|mpadded|table|thead|tbody|tr|th|td|p|div|br|span|img|sup|sub|a|ul|ol|li|mark)\b[^>]*>/gi;
+  const mathBlockRegex = /(<math[\s\S]*?<\/math>|\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\$(?:\\begin\{[a-z*]+\}[\s\S]*?\\end\{[a-z*]+\}|[^$\n]+?)(?<!\\)\$)/gi;
 
-  const savedTags: string[] = [];
-  const textWithPlaceholders = str.replace(validHtmlTagRegex, (tag) => {
-    savedTags.push(tag);
-    return `___HTML_TAG_${savedTags.length - 1}___`;
+  const savedPlaceholders: string[] = [];
+
+  // 1. Protect valid HTML tags FIRST so they are never swallowed by math blocks
+  let text = str.replace(validHtmlTagRegex, (tag) => {
+    savedPlaceholders.push(tag);
+    return `___MATH_RAW_BLOCK_${savedPlaceholders.length - 1}___`;
   });
 
-  const escapedText = textWithPlaceholders
+  // 2. Protect MathML & LaTeX Math blocks so their < and > are NEVER turned into &lt; / &gt;
+  text = text.replace(mathBlockRegex, (match) => {
+    savedPlaceholders.push(match);
+    return `___MATH_RAW_BLOCK_${savedPlaceholders.length - 1}___`;
+  });
+
+  // 3. Escape remaining raw prose < and > to prevent broken HTML parsing in rehypeRaw
+  const escapedText = text
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 
-  return escapedText.replace(/___HTML_TAG_(\d+)___/g, (_, idx) => savedTags[parseInt(idx, 10)] || '');
+  // 4. Restore protected Math and HTML blocks
+  return escapedText.replace(/___MATH_RAW_BLOCK_(\d+)___/g, (_, idx) => savedPlaceholders[parseInt(idx, 10)] || '');
 }
 
 export default function MarkdownRenderer({

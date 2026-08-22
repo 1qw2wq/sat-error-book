@@ -1053,6 +1053,44 @@ export default function BluebookTestShell({
         .bluebook-test-container .katex-html {
           user-select: text !important;
         }
+
+        /* Light table styles for test shell mode */
+        .bluebook-test-container table,
+        .bluebook-passage-content table,
+        .bluebook-prompt-content table {
+          background-color: #ffffff !important;
+          color: #0f172a !important;
+          border-color: #cbd5e1 !important;
+        }
+        .bluebook-test-container thead,
+        .bluebook-passage-content thead,
+        .bluebook-prompt-content thead,
+        .bluebook-test-container th,
+        .bluebook-passage-content th,
+        .bluebook-prompt-content th {
+          background-color: #f1f5f9 !important;
+          color: #0f172a !important;
+          border-color: #cbd5e1 !important;
+          font-weight: 700 !important;
+        }
+        .bluebook-test-container tbody,
+        .bluebook-passage-content tbody,
+        .bluebook-prompt-content tbody,
+        .bluebook-test-container tr,
+        .bluebook-passage-content tr,
+        .bluebook-prompt-content tr,
+        .bluebook-test-container td,
+        .bluebook-passage-content td,
+        .bluebook-prompt-content td {
+          background-color: #ffffff !important;
+          color: #0f172a !important;
+          border-color: #e2e8f0 !important;
+        }
+        .bluebook-test-container tr:nth-child(even),
+        .bluebook-passage-content tr:nth-child(even),
+        .bluebook-prompt-content tr:nth-child(even) {
+          background-color: #f8fafc !important;
+        }
         .bluebook-nav-pill,
         .bluebook-nav-pill *,
         .bluebook-btn-white,
@@ -1283,17 +1321,25 @@ export default function BluebookTestShell({
 
             // Clean up duplicate passage in prompt if present
             if (displayPassage && displayPrompt) {
-              const normPassage = displayPassage.replace(/\s+/g, ' ').trim();
-              const normPrompt = displayPrompt.replace(/\s+/g, ' ').trim();
-
-              if (normPrompt.startsWith(normPassage)) {
-                displayPrompt = displayPrompt.substring(displayPassage.length).trim();
+              const split = splitPassageAndPrompt(displayPrompt, currentQ.subject === 'Math' ? 'Math' : 'Reading and Writing', currentQ.explanation);
+              if (split.passageText && split.questionPrompt) {
+                displayPassage = displayPassage || split.passageText;
+                displayPrompt = split.questionPrompt;
               } else {
-                const pSub = displayPassage.slice(0, Math.min(35, displayPassage.length)).replace(/\s+/g, ' ').trim();
-                if (pSub && normPrompt.startsWith(pSub)) {
-                  const split = splitPassageAndPrompt(displayPrompt, currentQ.subject === 'Math' ? 'Math' : 'Reading and Writing', currentQ.explanation);
-                  if (split.questionPrompt) {
-                    displayPrompt = split.questionPrompt;
+                const normPassage = displayPassage.replace(/\s+/g, ' ').trim();
+                const normPrompt = displayPrompt.replace(/\s+/g, ' ').trim();
+
+                if (normPrompt.startsWith(normPassage)) {
+                  displayPrompt = displayPrompt.substring(displayPassage.length).trim();
+                } else if (normPrompt.includes(normPassage)) {
+                  const idx = normPrompt.indexOf(normPassage);
+                  displayPrompt = normPrompt.substring(idx + normPassage.length).trim();
+                } else {
+                  const pSub = displayPassage.slice(0, Math.min(35, displayPassage.length)).replace(/\s+/g, ' ').trim();
+                  if (pSub && normPrompt.startsWith(pSub)) {
+                    if (split.questionPrompt) {
+                      displayPrompt = split.questionPrompt;
+                    }
                   }
                 }
               }

@@ -230,42 +230,8 @@ export function splitPassageAndPrompt(
     }
   }
 
-  // 2. Match standard SAT prompt patterns cleanly (even when immediately touching </u> or periods)
-  const SAT_PROMPT_PREFIXES = [
-    'The\\s+student\\s+wants',
-    'A\\s+student\\s+wants',
-    'Which\\s+choice',
-    'Which\\s+finding',
-    'Which\\s+quotation',
-    'Which\\s+statement',
-    'Which\\s+sentence',
-    'Which\\s+idea',
-    'Which\\s+detail',
-    'Which\\s+claim',
-    'Which\\s+illustration',
-    'Which\\s+(?:of\\s+the\\s+following|option|phrase|word|excerpt|two)',
-    'Based\\s+on\\s+the\\s+(?:text|texts|passage|passages|table|graph|chart)',
-    'According\\s+to\\s+the\\s+(?:text|texts|passage|passages|table|speaker|author)',
-    'According\\s+to\\s+both\\s+texts',
-    'What\\s+does\\s+the\\s+(?:text|texts|speaker|author|narrator|character)',
-    'What\\s+is\\s+the\\s+(?:main|primary|function|purpose)',
-    'What\\s+best\\s+describes',
-    'How\\s+does\\s+(?:the\\s+author|the\\s+speaker|the\\s+text|Text\\s+[12A-B])',
-    'Why\\s+does\\s+(?:the\\s+author|the\\s+speaker|the\\s+character)',
-    'As\\s+used\\s+in\\s+(?:the\\s+text|line\\s+\\d+)',
-    'The\\s+(?:primary|main)\\s+purpose',
-    'The\\s+author(?:[\'’]s)?\\s+primary',
-    'The\\s+speaker(?:[\'’]s)?\\s+primary',
-    'The\\s+narrator\\s+indicates',
-    'In\\s+the\\s+(?:text|passage|poem|context)[,:]?',
-    'In\\s+Text\\s+[12A-B][,:]?',
-    'In\\s+Passage\\s+[12A-B][,:]?',
-  ];
-
-  const promptPattern = new RegExp(
-    '(?:\\n+|(?:[\\.\\!\\?]["”’\']?|<\\/u>|<\\/ins>)\\s*)(?=(?:' + SAT_PROMPT_PREFIXES.join('|') + ')\\b)',
-    'i'
-  );
+  // 2. Match standard SAT prompt patterns cleanly (even when touching underscores, </u>, or punctuation)
+  const promptPattern = /(?:\n+|(?:[\.\!\?]["”’']?|<\/u>|<\/ins>|_+\s*)\s*)(?=(?:The\s+student\s+wants|A\s+student\s+wants|Which\s+choice|Which\s+finding|Which\s+quotation|Which\s+statement|Which\s+sentence|Which\s+idea|Which\s+detail|Which\s+claim|Which\s+illustration|Which\s+(?:of\s+the\s+following|option|phrase|word|excerpt|two)|Based\s+on\s+the\s+(?:text|texts|passage|passages|table|graph|chart)|According\s+to\s+the\s+(?:text|texts|passage|passages|table|speaker|author)|According\s+to\s+both\s+texts|What\s+does\s+the\s+(?:text|texts|speaker|author|narrator|character)|What\s+is\s+the\s+(?:main|primary|function|purpose)|What\s+best\s+describes|How\s+does\s+(?:the\s+author|the\s+speaker|the\s+text|Text\s+[12A-B])|Why\s+does\s+(?:the\s+author|the\s+speaker|the\s+character)|As\s+used\s+in\s+(?:the\s+text|line\s+\d+)|The\s+(?:primary|main)\s+purpose|The\s+author(?:['’]s)?\s+primary|The\s+speaker(?:['’]s)?\s+primary|The\s+narrator\s+indicates|In\s+the\s+(?:text|passage|poem|context)[,:]?|In\s+Text\s+[12A-B][,:]?|In\s+Passage\s+[12A-B][,:]?)\b)/i;
 
   const match = cleanText.match(promptPattern);
   if (match && match.index !== undefined && match.index > 20) {

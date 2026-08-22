@@ -418,6 +418,29 @@ function getCachedKatex(latex: string, isBlock: boolean): string {
   }
 
   let cleanLatex = latex.trim();
+
+  // Repair control character corruptions (e.g. \frac becoming ASCII 12 \x0c, \begin becoming ASCII 8 \x08)
+  cleanLatex = cleanLatex
+    .replace(/\x0crac/g, '\\frac')
+    .replace(/\x0c/g, '\\f')
+    .replace(/\x08egin/g, '\\begin')
+    .replace(/\x08/g, '\\b')
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+
+  // Strip outer delimiters if passed to getCachedKatex
+  if (cleanLatex.startsWith('$$') && cleanLatex.endsWith('$$') && cleanLatex.length > 4) {
+    cleanLatex = cleanLatex.slice(2, -2).trim();
+  } else if (cleanLatex.startsWith('$') && cleanLatex.endsWith('$') && cleanLatex.length > 2) {
+    cleanLatex = cleanLatex.slice(1, -1).trim();
+  } else if (cleanLatex.startsWith('\\[') && cleanLatex.endsWith('\\]') && cleanLatex.length > 4) {
+    cleanLatex = cleanLatex.slice(2, -2).trim();
+  } else if (cleanLatex.startsWith('\\(') && cleanLatex.endsWith('\\)') && cleanLatex.length > 4) {
+    cleanLatex = cleanLatex.slice(2, -2).trim();
+  }
+
+  cleanLatex = cleanLatex.replace(/&lt;/g, ' \\lt ').replace(/&gt;/g, ' \\gt ');
+  cleanLatex = cleanLatex.replace(/(?<!\\)</g, ' \\lt ').replace(/(?<!\\)>/g, ' \\gt ');
+  cleanLatex = cleanLatex.replace(/\\lt\s*=/g, '\\le ').replace(/\\gt\s*=/g, '\\ge ');
   cleanLatex = cleanLatex.replace(/\\+(?=[0-9])/g, '');
   cleanLatex = cleanLatex.replace(/(?<!\\)%/g, '\\%');
   if (!cleanLatex.includes('\\frac') && /\b\d+\/\d+\b/.test(cleanLatex)) {
@@ -866,11 +889,18 @@ export default function MathRenderer({ text, className = '', highlights, onHighl
 
     if (fullMatch.startsWith('$') && fullMatch.endsWith('$') && fullMatch.length > 2) {
       const inner = fullMatch.slice(1, -1);
+      if (/<u\b|<\/u>|<ins\b|<\/ins>/i.test(inner)) {
+        tokens.push({ type: 'prose', text: processedText.substring(lastIdx, mathRegex.lastIndex) });
+        lastIdx = mathRegex.lastIndex;
+        continue;
+      }
       const hasLatexSyntax = /\\[a-zA-Z]+|[=<>+\-^_\/\\\{\}\(\)]|^\d+$/.test(inner);
       if (!hasLatexSyntax) {
         const words = inner.match(/\b[a-zA-Z]{2,}\b/g) || [];
         const nonMathWords = words.filter((w) => !/^(?:sin|cos|tan|log|ln|lim|max|min|det|deg|rad|var|mod|and|or|is|if|for|all|not|ge|le|pm|times|div|frac|sqrt|pi|theta|alpha|beta|gamma|delta|sigma|lambda|mu|phi|omega)$/i.test(w));
         if (nonMathWords.length >= 2 && !inner.includes('\\begin') && !inner.includes('\\text')) {
+          tokens.push({ type: 'prose', text: processedText.substring(lastIdx, mathRegex.lastIndex) });
+          lastIdx = mathRegex.lastIndex;
           continue;
         }
       }
