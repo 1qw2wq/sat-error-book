@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   XCircle,
   Clock,
+  ArrowRight,
   Play,
   RotateCcw,
   Sparkles,
@@ -269,6 +270,69 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
     examType?: 'official_full' | 'official_section' | 'custom_drill' | 'single_question';
     presetConfig?: any;
   } | null>(null);
+
+  // Retake Mode Selection Modal State
+  const [retakeModalItem, setRetakeModalItem] = useState<PracticeHistoryItem | null>(null);
+  const [retakeDeliveryMode, setRetakeDeliveryMode] = useState<'instant_feedback' | 'exam'>('instant_feedback');
+  const [retakeIsUntimed, setRetakeIsUntimed] = useState<boolean>(false);
+
+  const executeRetakeSession = (
+    item: PracticeHistoryItem,
+    instantFeedback: boolean,
+    isUntimed: boolean
+  ) => {
+    if (item.questionSummaries && item.questionSummaries.length > 0) {
+      const rawList: RawSATQuestion[] = item.questionSummaries.map((qs, idx) => ({
+        question_id: typeof qs.questionId === 'number' ? qs.questionId : parseInt(String(qs.questionId), 10) || idx + 1,
+        question_no: typeof qs.questionNo === 'number' ? qs.questionNo : idx + 1,
+        question: qs.passageText ? `${qs.passageText}\n\n${qs.questionPrompt}` : (qs.questionPrompt || ''),
+        section: (qs.section || item.section || 'Reading and Writing') as any,
+        category: qs.subTopic || '',
+        difficulty: typeof qs.difficulty === 'number' ? qs.difficulty : 5,
+        answers: qs.correctAnswer || '',
+        selections: qs.choices || [],
+        explanations: qs.explanation || '',
+        graphs: qs.graphData?.croppedGraphUrl ? [qs.graphData.croppedGraphUrl] : [],
+        exam_name: item.examName || item.title || 'SAT Practice Test',
+        module: 'Module 1',
+        question_type: qs.choices && qs.choices.length > 0 ? 'Single Choice' : 'Fill-in-the-Blank / Free Response',
+      }));
+
+      const bluebookList: BluebookQuestionItem[] = rawList.map((q, idx) =>
+        transformRawToBluebookQuestion(q, idx)
+      );
+
+      const isOfficial = item.examType === 'official_full' || item.examType === 'official_section';
+      setTestingSession({
+        isOpen: true,
+        title: `Retake: ${item.title.replace(/^Retake:\s*/, '')}`,
+        sectionName: item.section || 'SAT Practice Retake',
+        questions: bluebookList,
+        rawQuestions: rawList,
+        timerSeconds: isUntimed ? 0 : isOfficial ? 0 : Math.round(bluebookList.length * 75),
+        perQuestionTimerSeconds: 0,
+        isUntimed: isUntimed,
+        isOfficialExam: isOfficial,
+        instantFeedback: instantFeedback,
+        presetConfig: item.presetConfig ? { ...item.presetConfig, deliveryMode: instantFeedback ? 'instant_feedback' : 'exam' } : undefined,
+      });
+    } else if (item.presetConfig) {
+      if (item.presetConfig.section) setBuilderSection(item.presetConfig.section as any);
+      if (item.presetConfig.domain) setBuilderDomain(item.presetConfig.domain);
+      if (item.presetConfig.module) setBuilderModule(item.presetConfig.module as any);
+      if (item.presetConfig.difficultyRange) setBuilderDifficultyRange(item.presetConfig.difficultyRange);
+      if (item.presetConfig.type) setBuilderType(item.presetConfig.type as any);
+      if (item.presetConfig.timerMode) setBuilderTimerMode(item.presetConfig.timerMode as any);
+      setBuilderDeliveryMode(instantFeedback ? 'instant_feedback' : 'exam');
+      setActiveTab('builder');
+    } else if (item.examName && combinedExams.length > 0) {
+      const matched = combinedExams.find(c => item.title.includes(c.baseName));
+      if (matched) {
+        handleStartCombinedExam(matched);
+      }
+    }
+    setRetakeModalItem(null);
+  };
 
   // Completed Test Results with Comprehensive Scoring
   const [testResults, setTestResults] = useState<{
@@ -2135,24 +2199,24 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
                       </div>
                     )}
 
-                    {/* Question Content with MathRenderer / Split Layout */}
+                    {/* Question Content with MarkdownRenderer / Split Layout */}
                     {(() => {
                       const split = splitPassageAndPrompt(q.question, q.section, q.explanations);
                       if (split.passageText && split.questionPrompt) {
                         return (
                           <div className="space-y-3 my-2 w-full">
                             <div className="text-base text-slate-900 dark:text-slate-100 leading-relaxed font-serif p-3.5 sm:p-4.5 rounded-xl bg-slate-50/70 dark:bg-slate-900/40 border border-slate-200/80 dark:border-slate-800 overflow-x-auto min-w-0 w-full">
-                              <MathRenderer text={split.passageText} />
+                              <MarkdownRenderer content={split.passageText} explanation={q.explanations} />
                             </div>
                             <div className="text-base font-medium text-slate-900 dark:text-slate-100 leading-relaxed font-serif p-3 sm:p-3.5 rounded-xl bg-indigo-50/40 dark:bg-indigo-950/20 border border-indigo-100/80 dark:border-indigo-900/40 overflow-x-auto min-w-0 w-full">
-                              <MathRenderer text={split.questionPrompt} />
+                              <MarkdownRenderer content={split.questionPrompt} explanation={q.explanations} />
                             </div>
                           </div>
                         );
                       }
                       return (
                         <div className="text-base text-slate-900 dark:text-slate-100 leading-relaxed font-serif my-2 p-3 sm:p-4 rounded-xl bg-slate-50/70 dark:bg-slate-900/40 border border-slate-200/80 dark:border-slate-800 overflow-x-auto min-w-0 w-full">
-                          <MathRenderer text={restoreUnderline(q.question, q.explanations)} />
+                          <MarkdownRenderer content={q.question} explanation={q.explanations} />
                         </div>
                       );
                     })()}
@@ -2235,56 +2299,9 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
           savedSessions={savedSessions}
           onResumeSavedTest={handleResumeSavedTest}
           onRetakeTest={(item) => {
-            if (item.questionSummaries && item.questionSummaries.length > 0) {
-              const rawList: RawSATQuestion[] = item.questionSummaries.map((qs, idx) => ({
-                question_id: typeof qs.questionId === 'number' ? qs.questionId : parseInt(String(qs.questionId), 10) || idx + 1,
-                question_no: typeof qs.questionNo === 'number' ? qs.questionNo : idx + 1,
-                question: qs.passageText ? `${qs.passageText}\n\n${qs.questionPrompt}` : (qs.questionPrompt || ''),
-                section: (qs.section || item.section || 'Reading and Writing') as any,
-                category: qs.subTopic || '',
-                difficulty: typeof qs.difficulty === 'number' ? qs.difficulty : 5,
-                answers: qs.correctAnswer || '',
-                selections: qs.choices || [],
-                explanations: qs.explanation || '',
-                graphs: qs.graphData?.croppedGraphUrl ? [qs.graphData.croppedGraphUrl] : [],
-                exam_name: item.examName || item.title || 'SAT Practice Test',
-                module: 'Module 1',
-                question_type: qs.choices && qs.choices.length > 0 ? 'Single Choice' : 'Fill-in-the-Blank / Free Response',
-              }));
-
-              const bluebookList: BluebookQuestionItem[] = rawList.map((q, idx) =>
-                transformRawToBluebookQuestion(q, idx)
-              );
-
-              const isOfficial = item.examType === 'official_full' || item.examType === 'official_section';
-              setTestingSession({
-                isOpen: true,
-                title: `Retake: ${item.title.replace(/^Retake:\s*/, '')}`,
-                sectionName: item.section || 'SAT Practice Retake',
-                questions: bluebookList,
-                rawQuestions: rawList,
-                timerSeconds: isOfficial ? 0 : Math.round(bluebookList.length * 75),
-                perQuestionTimerSeconds: 0,
-                isUntimed: false,
-                isOfficialExam: isOfficial,
-                instantFeedback: item.presetConfig?.deliveryMode === 'instant_feedback',
-                presetConfig: item.presetConfig,
-              });
-            } else if (item.presetConfig) {
-              if (item.presetConfig.section) setBuilderSection(item.presetConfig.section as any);
-              if (item.presetConfig.domain) setBuilderDomain(item.presetConfig.domain);
-              if (item.presetConfig.module) setBuilderModule(item.presetConfig.module as any);
-              if (item.presetConfig.difficultyRange) setBuilderDifficultyRange(item.presetConfig.difficultyRange);
-              if (item.presetConfig.type) setBuilderType(item.presetConfig.type as any);
-              if (item.presetConfig.timerMode) setBuilderTimerMode(item.presetConfig.timerMode as any);
-              if (item.presetConfig.deliveryMode) setBuilderDeliveryMode(item.presetConfig.deliveryMode as any);
-              setActiveTab('builder');
-            } else if (item.examName && combinedExams.length > 0) {
-              const matched = combinedExams.find(c => item.title.includes(c.baseName));
-              if (matched) {
-                handleStartCombinedExam(matched);
-              }
-            }
+            setRetakeDeliveryMode(item.presetConfig?.deliveryMode === 'exam' ? 'exam' : 'instant_feedback');
+            setRetakeIsUntimed(false);
+            setRetakeModalItem(item);
           }}
           onRefreshData={refreshHistoryAndSaved}
         />
@@ -2623,13 +2640,13 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
                         {/* Passage stimulus if present */}
                         {q.passageText && (
                           <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-700/60 text-xs text-slate-800 dark:text-slate-200 font-serif leading-relaxed">
-                            <MathRenderer text={q.passageText} />
+                            <MarkdownRenderer content={q.passageText} explanation={q.explanation || raw?.explanations} />
                           </div>
                         )}
 
-                        {/* Question Stem with MathRenderer */}
+                        {/* Question Stem with MarkdownRenderer */}
                         <div className="text-sm sm:text-base text-slate-900 dark:text-slate-100 font-serif leading-relaxed overflow-x-auto min-w-0">
-                          <MathRenderer text={q.questionPrompt || raw?.question || ''} />
+                          <MarkdownRenderer content={q.questionPrompt || raw?.question || ''} explanation={q.explanation || raw?.explanations} />
                         </div>
 
                         {/* Choices */}
@@ -2991,6 +3008,130 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
         }}
         onSaved={handleJsonQuestionSaved}
       />
+
+      {/* Retake Mode Options Selection Modal */}
+      {retakeModalItem && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden space-y-6 p-6 sm:p-8">
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-1">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 text-xs font-bold">
+                  <RotateCcw className="w-3.5 h-3.5" /> Retake Test Session
+                </div>
+                <h3 className="text-lg sm:text-xl font-extrabold text-slate-900 dark:text-white leading-tight">
+                  {retakeModalItem.title}
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Select your preferred test delivery mode for this retake.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRetakeModalItem(null)}
+                className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <label className="block text-xs font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Choose Mode:
+              </label>
+
+              {/* Option 1: Practice & Learn Mode */}
+              <button
+                type="button"
+                onClick={() => setRetakeDeliveryMode('instant_feedback')}
+                className={`w-full p-4 rounded-2xl border-2 text-left transition-all cursor-pointer flex items-start gap-4 ${
+                  retakeDeliveryMode === 'instant_feedback'
+                    ? 'border-indigo-600 bg-indigo-50/70 dark:bg-indigo-950/40 ring-2 ring-indigo-500/20'
+                    : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 bg-white dark:bg-slate-800/40'
+                }`}
+              >
+                <div className={`p-2.5 rounded-xl shrink-0 ${retakeDeliveryMode === 'instant_feedback' ? 'bg-indigo-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'}`}>
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-2">
+                    <span className="font-extrabold text-sm text-slate-900 dark:text-white">
+                      Practice & Learn Mode
+                    </span>
+                    <span className="px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 text-[10px] font-bold">
+                      Instant Feedback
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                    Check answers after each question with step-by-step explanations and persistent answer selections.
+                  </p>
+                </div>
+              </button>
+
+              {/* Option 2: Timed Exam Mode */}
+              <button
+                type="button"
+                onClick={() => setRetakeDeliveryMode('exam')}
+                className={`w-full p-4 rounded-2xl border-2 text-left transition-all cursor-pointer flex items-start gap-4 ${
+                  retakeDeliveryMode === 'exam'
+                    ? 'border-blue-600 bg-blue-50/70 dark:bg-blue-950/40 ring-2 ring-blue-500/20'
+                    : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 bg-white dark:bg-slate-800/40'
+                }`}
+              >
+                <div className={`p-2.5 rounded-xl shrink-0 ${retakeDeliveryMode === 'exam' ? 'bg-blue-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'}`}>
+                  <Clock className="w-5 h-5" />
+                </div>
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-2">
+                    <span className="font-extrabold text-sm text-slate-900 dark:text-white">
+                      Timed Exam Mode
+                    </span>
+                    <span className="px-2 py-0.5 rounded-md bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 text-[10px] font-bold">
+                      Standard Test
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                    Take the entire test uninterrupted with a timer and review module at the end, mimicking real test conditions.
+                  </p>
+                </div>
+              </button>
+            </div>
+
+            {/* Timing Option Toggle */}
+            <div className="pt-2 border-t border-slate-200 dark:border-slate-800">
+              <label className="flex items-center gap-3 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={retakeIsUntimed}
+                  onChange={(e) => setRetakeIsUntimed(e.target.checked)}
+                  className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 dark:border-slate-700"
+                />
+                <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Untimed Mode (no countdown timer pressure)
+                </span>
+              </label>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setRetakeModalItem(null)}
+                className="px-5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => executeRetakeSession(retakeModalItem, retakeDeliveryMode === 'instant_feedback', retakeIsUntimed)}
+                className="px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold shadow-md transition-all flex items-center gap-2 cursor-pointer"
+              >
+                <span>Start Retake</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

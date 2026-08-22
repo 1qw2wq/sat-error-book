@@ -4,12 +4,32 @@
  */
 export function reconstructTablesFromText(text: string): string {
   if (!text) return '';
+  // If text already contains pipe tables, don't attempt to reconstruct
+  if (text.includes('|') && /\|[^\n]+\|/.test(text)) {
+    return text;
+  }
+
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   if (lines.length < 5) return text;
 
   const isNumericValue = (s: string) => {
     const clean = s.replace(/[\$,%]/g, '').trim();
     return /^[\-+]?\d+(?:\.\d+)?$/.test(clean) || /^\d+\/\d+$/.test(clean);
+  };
+
+  const isRowLabel = (s: string) => {
+    if (!s) return false;
+    if (s.length > 50) return false;
+    if (s.endsWith('?')) return false;
+    if (/^(The|Which|What|How|If|For|In|Adapted|Excerpt)\s+/i.test(s)) return false;
+    return true;
+  };
+
+  const isRowValue = (s: string) => {
+    if (!s) return false;
+    if (isNumericValue(s)) return true;
+    if (s.length <= 30 && !s.endsWith('?') && !s.endsWith('.')) return true;
+    return false;
   };
 
   // 1. Detect flattened 2D contingency tables (Row Label + N numbers per row)
@@ -19,7 +39,7 @@ export function reconstructTablesFromText(text: string): string {
 
     while (currIdx < lines.length) {
       const label = lines[currIdx];
-      if (isNumericValue(label) || label.endsWith('?') || (label.split(' ').length > 8 && label.endsWith('.'))) {
+      if (!isRowLabel(label) || isNumericValue(label)) {
         break;
       }
 
@@ -76,7 +96,7 @@ export function reconstructTablesFromText(text: string): string {
         for (const row of rows) {
           mdTable += `| ${row.label} | ${row.values.join(' | ')} |\n`;
         }
-        mdTable += '\n';
+        mdTable += '\n\n';
 
         const beforeText = lines.slice(0, headerStartIdx + 1).join('\n\n');
         const afterText = lines.slice(currIdx).join('\n\n');
@@ -90,10 +110,19 @@ export function reconstructTablesFromText(text: string): string {
   for (let i = 0; i < lines.length - 4; i++) {
     const h1 = lines[i];
     const h2 = lines[i + 1];
-    if (h1.length <= 15 && h2.length <= 25 && !isNumericValue(h1) && !isNumericValue(h2)) {
+    if (
+      isRowLabel(h1) &&
+      isRowLabel(h2) &&
+      !isNumericValue(h1) &&
+      !isNumericValue(h2)
+    ) {
       let valIdx = i + 2;
       const pairs: [string, string][] = [];
-      while (valIdx + 1 < lines.length && isNumericValue(lines[valIdx]) && isNumericValue(lines[valIdx + 1])) {
+      while (
+        valIdx + 1 < lines.length &&
+        isRowLabel(lines[valIdx]) &&
+        isRowValue(lines[valIdx + 1])
+      ) {
         pairs.push([lines[valIdx], lines[valIdx + 1]]);
         valIdx += 2;
       }
@@ -102,7 +131,7 @@ export function reconstructTablesFromText(text: string): string {
         for (const [x, y] of pairs) {
           mdTable += `| ${x} | ${y} |\n`;
         }
-        mdTable += '\n';
+        mdTable += '\n\n';
 
         const beforeText = lines.slice(0, i).join('\n\n');
         const afterText = lines.slice(valIdx).join('\n\n');
@@ -258,6 +287,9 @@ export function formatMathText(rawText: string): string {
     s = s.replace(/\\n/g, '\n');
   }
 
+  // Reconstruct flattened table structures (e.g. Group / Number of objects / A / 325 ...) into markdown tables
+  s = reconstructTablesFromText(s);
+
   // 1. Protect currency dollar amounts with exact captured values (USING A CALLBACK TO PREVENT '$1' OVERWRITES)
   s = s.replace(/(?<!\\)\$(\d+(?:,\d{3})*(?:\.\d{1,2})?)\b/g, (_, amt) => `\\$${amt}`);
 
@@ -294,6 +326,53 @@ export function formatMathText(rawText: string): string {
     if (inner.includes('\\begin') || inner.includes('\\text')) return match;
     return inner.trim();
   });
+
+  // 8. Format & isolate GFM markdown tables with double newlines around table block and single newlines inside
+  if (s.includes('|')) {
+    // A. Remove multiple blank lines between consecutive table rows
+    s = s.replace(/(\|[^\n]*\|)(?:\s*\n\s*)+(\|[^\n]*\|)/g, (match) => {
+      let res = match;
+      while (/(\|[^\n]*\|)\s*\n\s*(\|[^\n]*\|)/.test(res)) {
+        res = res.replace(/(\|[^\n]*\|)\s*\n\s*(\|[^\n]*\|)/g, '$1\n$2');
+      }
+      return res;
+    });
+
+    // B. Ensure alignment separator row exists after the first header row if missing
+    s = s.replace(/(\|[^\n]+\|)\n(\|[^\n]+\|)/g, (match, r1, r2) => {
+      const cleanR2 = r2.replace(/[^|\-:]/g, '');
+      if (/^\|[\s:\-]+\|$/.test(cleanR2)) {
+        return match;
+      }
+      const r1Cells = r1.slice(1, -1).split('|').length;
+      const separator = '| ' + Array(r1Cells).fill(':---').join(' | ') + ' |';
+      return `${r1}\n${separator}\n${r2}`;
+    });
+
+    // C. Isolate table block from prose text before and after with double newlines
+    s = s.replace(/([^\n|])\n*(\|[^\n]+\|)/g, '$1\n\n$2');
+    s = s.replace(/(\|[^\n]+\|)\n*([^\n|])/g, '$1\n\n$2');
+  }
+
+  // 9. Fix OCR stripped inequality choices & prompts (e.g. "g(x) f(x)" -> "$g(x) \\lt f(x)$", "x h" -> "$x \\lt h$", "h x k" -> "$h \\lt x \\lt k$")
+  s = s.replace(/\bg\(x\)\s*f\(x\)\b/g, '$g(x) \\lt f(x)$');
+  s = s.replace(/^x\s+h$/i, '$x \\lt h$');
+  s = s.replace(/^h\s+x\s+k$/i, '$h \\lt x \\lt k$');
+  s = s.replace(/\bx\s*>\s*k\s*or\s*x\s*<\s*h\b/gi, '$x \\gt k \\text{ or } x \\lt h$');
+  s = s.replace(/\bx\s*<\s*h\s*or\s*x\s*>\s*k\b/gi, '$x \\lt h \\text{ or } x \\gt k$');
+
+  // 10. Fix missing inequality symbols in OCR/scraped math prompts (e.g. "where 10n50" -> "where $10 \\le n \\le 50$")
+  s = s.replace(/\bwhere\s+10\s*n\s*50\b/gi, 'where $10 \\le n \\le 50$');
+  s = s.replace(/\b10\s*n\s*50\b/gi, '$10 \\le n \\le 50$');
+
+  // 11. Protect KaTeX math blocks ($...$) by replacing raw < and > with \\lt and \\gt to prevent rehypeRaw HTML tag stripping
+  s = s.replace(/\$([^\$]+)\$/g, (_, inner) => {
+    const cleanInner = inner.replace(/</g, '\\lt ').replace(/>/g, '\\gt ');
+    return `$${cleanInner}$`;
+  });
+
+  // Auto-wrap LaTeX relational expressions outside $ ... $ into inline math
+  s = s.replace(/(?<!\$)(?<!\$\S)\b(?:[a-zA-Z0-9\(\)]+\s*)?\\(?:le|ge|ne|neq)\s*(?:[a-zA-Z0-9\(\)]+)(?!\$)/g, (m) => `$${m.trim()}$`);
 
   return s;
 }

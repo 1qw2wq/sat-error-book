@@ -1097,12 +1097,12 @@ export default function PracticeHistoryView({
                               <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1 font-sans">
                                 Passage / Stimulus:
                               </p>
-                              <MathRenderer text={q.passageText} />
+                              <MarkdownRenderer content={q.passageText} explanation={q.explanation} />
                             </div>
                           )}
 
                           <div className="font-semibold text-slate-900 dark:text-slate-100 text-sm md:text-base">
-                            <MathRenderer text={q.questionPrompt} />
+                            <MarkdownRenderer content={q.questionPrompt} explanation={q.explanation} />
                           </div>
 
                           {/* Choices & Highlighting */}

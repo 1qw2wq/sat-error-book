@@ -969,7 +969,6 @@ export default function BluebookTestShell({
   };
 
   const handleSelectAnswer = (choiceLabel: string) => {
-    if (isChecked) return;
     setAnswers((prev) => ({
       ...prev,
       [currentIndex]: choiceLabel,
@@ -1436,8 +1435,7 @@ export default function BluebookTestShell({
                         onClick={() => {
                           if (!isElim) handleSelectAnswer(choiceLetter);
                         }}
-                        disabled={isChecked}
-                        className="flex-1 p-4 sm:p-5 md:p-6 text-left flex items-center gap-4 cursor-pointer disabled:cursor-default min-w-0 w-full"
+                        className="flex-1 p-4 sm:p-5 md:p-6 text-left flex items-center gap-4 cursor-pointer min-w-0 w-full"
                       >
                         <div
                           className={`w-8 h-8 rounded-full border-2 font-mono font-bold text-sm flex items-center justify-center shrink-0 transition-colors ${circleClasses}`}
@@ -1502,7 +1500,6 @@ export default function BluebookTestShell({
                         handleCheckAnswer(currentIndex);
                       }
                     }}
-                    disabled={isChecked}
                     placeholder="Enter your answer (e.g., 14, 3/4, 0.75)"
                     className={`w-full max-w-sm px-4 py-3 rounded-xl border font-mono text-base ${
                       isChecked

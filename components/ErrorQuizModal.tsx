@@ -26,6 +26,7 @@ import { saveError, recordReview } from '@/lib/db';
 import { gradeStudentResponse, evaluateSATQuestionAnswer } from '@/lib/answerGrading';
 import { isDummyChoices } from '@/lib/questionBank';
 import MathRenderer from './MathRenderer';
+import MarkdownRenderer from './MarkdownRenderer';
 import GraphRenderer from './GraphRenderer';
 import Scratchpad from './Scratchpad';
 import BluebookTestShell, { BluebookQuestionItem } from './BluebookTestShell';
@@ -604,7 +605,7 @@ export default function ErrorQuizModal({
                         </div>
 
                         <div className="line-clamp-2 text-slate-600 dark:text-slate-300 font-medium">
-                          <MathRenderer text={item.questionText} explanation={item.explanation} />
+                          <MarkdownRenderer content={item.questionText} explanation={item.explanation} />
                         </div>
 
                         <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-200/60 dark:border-slate-800/60">

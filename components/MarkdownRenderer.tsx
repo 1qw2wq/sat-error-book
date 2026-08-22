@@ -29,6 +29,23 @@ function extractStringFromChildren(node: React.ReactNode): string {
   return '';
 }
 
+function escapeNonHtmlAngleBrackets(str: string): string {
+  if (!str) return '';
+  const validHtmlTagRegex = /<\/?(?:u|ins|b|strong|em|i|math|annotation|semantics|mrow|mfrac|msup|msub|msubsup|mroot|msqrt|mtable|mtr|mtd|mtext|mo|mi|mn|mspace|mfenced|mover|munder|menclose|mstyle|mpadded|table|thead|tbody|tr|th|td|p|div|br|span|img|sup|sub|a|ul|ol|li|mark)\b[^>]*>/gi;
+
+  const savedTags: string[] = [];
+  const textWithPlaceholders = str.replace(validHtmlTagRegex, (tag) => {
+    savedTags.push(tag);
+    return `___HTML_TAG_${savedTags.length - 1}___`;
+  });
+
+  const escapedText = textWithPlaceholders
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  return escapedText.replace(/___HTML_TAG_(\d+)___/g, (_, idx) => savedTags[parseInt(idx, 10)] || '');
+}
+
 export default function MarkdownRenderer({
   content,
   className = '',
@@ -51,6 +68,8 @@ export default function MarkdownRenderer({
         return `$${latex}$`;
       });
     }
+
+    text = escapeNonHtmlAngleBrackets(text);
 
     return text;
   }, [content, explanation]);
@@ -128,15 +147,15 @@ export default function MarkdownRenderer({
           strong: ({ children }) => <strong className="font-extrabold font-black text-inherit inline">{renderChildrenWithMath(children)}</strong>,
           em: ({ children }) => <em className="italic text-inherit">{renderChildrenWithMath(children)}</em>,
           table: ({ children }) => (
-            <div className="my-4 w-full overflow-x-auto rounded-xl border border-slate-300 dark:border-slate-700 bg-white/90 dark:bg-slate-900/90 shadow-xs">
-              <table className="w-full text-left text-sm border-collapse font-sans text-inherit">{children}</table>
+            <div className="my-4 w-full overflow-x-auto rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xs">
+              <table className="w-full text-left text-sm border-collapse font-sans text-slate-900 dark:text-slate-100">{children}</table>
             </div>
           ),
-          thead: ({ children }) => <thead className="bg-slate-100 dark:bg-slate-800 text-inherit font-extrabold border-b-2 border-slate-300 dark:border-slate-700">{children}</thead>,
-          tbody: ({ children }) => <tbody className="divide-y divide-slate-200 dark:divide-slate-800 text-inherit font-medium">{children}</tbody>,
+          thead: ({ children }) => <thead className="bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-extrabold border-b-2 border-slate-300 dark:border-slate-700">{children}</thead>,
+          tbody: ({ children }) => <tbody className="divide-y divide-slate-200 dark:divide-slate-800 text-slate-800 dark:text-slate-200 font-medium">{children}</tbody>,
           tr: ({ children }) => <tr className="hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors">{children}</tr>,
-          th: ({ children }) => <th className="px-4 py-2.5 font-extrabold text-inherit border-r border-slate-300 dark:border-slate-700 last:border-r-0 tracking-tight text-center sm:text-left whitespace-nowrap bg-slate-100 dark:bg-slate-800">{renderChildrenWithMath(children)}</th>,
-          td: ({ children }) => <td className="px-4 py-2.5 text-inherit border-r border-slate-200 dark:border-slate-700 last:border-r-0 align-middle text-center sm:text-left font-medium">{renderChildrenWithMath(children)}</td>,
+          th: ({ children }) => <th className="px-4 py-2.5 font-extrabold text-slate-900 dark:text-slate-100 border-r border-slate-300 dark:border-slate-700 last:border-r-0 tracking-tight text-center sm:text-left whitespace-nowrap bg-slate-100 dark:bg-slate-800">{renderChildrenWithMath(children)}</th>,
+          td: ({ children }) => <td className="px-4 py-2.5 text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-700 last:border-r-0 align-middle text-center sm:text-left font-medium">{renderChildrenWithMath(children)}</td>,
           ul: ({ children }) => <ul className="list-disc pl-6 my-3 space-y-1.5 text-inherit font-serif text-base md:text-lg">{children}</ul>,
           ol: ({ children }) => <ol className="list-decimal pl-6 my-3 space-y-1.5 text-inherit font-serif text-base md:text-lg">{children}</ol>,
           li: ({ children }) => <li className="leading-relaxed text-inherit font-serif">{renderChildrenWithMath(children)}</li>,

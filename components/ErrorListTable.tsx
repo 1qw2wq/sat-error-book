@@ -21,6 +21,7 @@ import {
 import { SATErrorItem, SATSubject, MasteryStatus } from '@/types/sat';
 import { deleteError, exportFullDatabase, importFullDatabase, recordReview, syncAndRestoreErrorDirectory } from '@/lib/db';
 import MathRenderer from './MathRenderer';
+import MarkdownRenderer from './MarkdownRenderer';
 
 interface ErrorListTableProps {
   errors: SATErrorItem[];
@@ -363,8 +364,8 @@ export default function ErrorListTable({
 
                 {/* Question Preview */}
                 <div className="text-sm font-semibold text-slate-900 dark:text-slate-100 line-clamp-3 leading-snug">
-                  <MathRenderer
-                    text={
+                  <MarkdownRenderer
+                    content={
                       item.passageText &&
                       item.passageText.trim().length > 0 &&
                       item.passageText.trim().toLowerCase() !== 'none' &&
@@ -372,6 +373,7 @@ export default function ErrorListTable({
                         ? `${item.passageText}\n\n${item.questionText}`
                         : item.questionText
                     }
+                    explanation={item.explanation}
                   />
                 </div>
 

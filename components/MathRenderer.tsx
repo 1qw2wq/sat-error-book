@@ -305,6 +305,85 @@ function renderProseWithFormatting(
   highlights?: HighlightItem[],
   onHighlightClick?: (highlight: HighlightItem, e: React.MouseEvent) => void
 ) {
+  if (prose.includes('|') && /\|[^\n]+\|/.test(prose)) {
+    const lines = prose.split('\n');
+    const tableLineIndices: number[] = [];
+    lines.forEach((line, idx) => {
+      if (/^\s*\|.*\|\s*$/.test(line)) {
+        tableLineIndices.push(idx);
+      }
+    });
+
+    if (tableLineIndices.length >= 2) {
+      const startIdx = tableLineIndices[0];
+      const endIdx = tableLineIndices[tableLineIndices.length - 1];
+
+      const beforeLines = lines.slice(0, startIdx).map((l) => l.trim()).filter(Boolean);
+      const tableLines = lines.slice(startIdx, endIdx + 1).map((l) => l.trim()).filter(Boolean);
+      const afterLines = lines.slice(endIdx + 1).map((l) => l.trim()).filter(Boolean);
+
+      const parsedRows: string[][] = tableLines
+        .filter((l) => l.startsWith('|') && l.endsWith('|'))
+        .map((l) =>
+          l
+            .slice(1, -1)
+            .split('|')
+            .map((cell) => cell.trim())
+        )
+        .filter((row) => !row.every((cell) => /^:?-+:?$/.test(cell)));
+
+      if (parsedRows.length >= 2) {
+        const headerRow = parsedRows[0];
+        const bodyRows = parsedRows.slice(1);
+
+        return (
+          <span className="block my-3 w-full">
+            {beforeLines.length > 0 && (
+              <span className="block mb-2 font-serif text-inherit">
+                {beforeLines.map((l, i) => (
+                  <span key={i} className="block mb-1">{renderInlineProse(l, baseKey * 1000 + i, highlights, onHighlightClick)}</span>
+                ))}
+              </span>
+            )}
+
+            <div className="my-3 w-full overflow-x-auto rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xs">
+              <table className="w-full text-left text-sm border-collapse font-sans text-slate-900 dark:text-slate-100">
+                <thead className="bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-extrabold border-b-2 border-slate-300 dark:border-slate-700">
+                  <tr>
+                    {headerRow.map((hCell, hIdx) => (
+                      <th key={hIdx} className="px-4 py-2.5 font-extrabold text-slate-900 dark:text-slate-100 border-r border-slate-300 dark:border-slate-700 last:border-r-0 text-center sm:text-left bg-slate-100 dark:bg-slate-800">
+                        {renderInlineProse(hCell, baseKey * 100 + hIdx, highlights, onHighlightClick)}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 dark:divide-slate-800 text-slate-800 dark:text-slate-200 font-medium">
+                  {bodyRows.map((rRow, rIdx) => (
+                    <tr key={rIdx} className="hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors">
+                      {rRow.map((cCell, cIdx) => (
+                        <td key={cIdx} className="px-4 py-2.5 text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-700 last:border-r-0 align-middle text-center sm:text-left font-medium">
+                          {renderInlineProse(cCell, baseKey * 200 + rIdx * 10 + cIdx, highlights, onHighlightClick)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {afterLines.length > 0 && (
+              <span className="block mt-2 font-serif text-inherit">
+                {afterLines.map((l, i) => (
+                  <span key={i} className="block mt-1">{renderInlineProse(l, baseKey * 3000 + i, highlights, onHighlightClick)}</span>
+                ))}
+              </span>
+            )}
+          </span>
+        );
+      }
+    }
+  }
+
   if (prose.includes('\n')) {
     const lines = prose.split('\n');
     return (
@@ -494,8 +573,8 @@ export function convertMathmlToLatex(mathml: string): string {
       if (txt === '≤' || txt === '&le;') return ' \\le ';
       if (txt === '≥' || txt === '&ge;') return ' \\ge ';
       if (txt === '≠' || txt === '&ne;') return ' \\ne ';
-      if (txt === '<' || txt === '&lt;') return ' < ';
-      if (txt === '>' || txt === '&gt;') return ' > ';
+      if (txt === '<' || txt === '&lt;') return ' \\lt ';
+      if (txt === '>' || txt === '&gt;') return ' \\gt ';
       if (txt === '×') return ' \\times ';
       if (txt === '÷') return ' \\div ';
       if (txt === '±') return ' \\pm ';

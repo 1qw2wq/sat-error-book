@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { RawSATQuestion } from '@/types/sat';
 import MathRenderer from './MathRenderer';
+import MarkdownRenderer from './MarkdownRenderer';
 import { formatMathText } from '@/lib/mathFormatter';
 
 interface QuestionJsonEditModalProps {
@@ -597,7 +598,7 @@ function QuestionJsonEditModalContent({
                       Rendered Question
                     </h4>
                     <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xs text-base leading-relaxed text-slate-900 dark:text-slate-100">
-                      <MathRenderer text={formData.question || 'No question text.'} />
+                      <MarkdownRenderer content={formData.question || 'No question text.'} />
                     </div>
                   </div>
 
