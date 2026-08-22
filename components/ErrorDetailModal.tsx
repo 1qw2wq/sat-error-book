@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 import { SATErrorItem, MasteryStatus, MistakeType, SATSubject, AnswerChoice, GraphData } from '@/types/sat';
 import { saveError, deleteError } from '@/lib/db';
-import { splitPassageAndPrompt, isDummyChoices } from '@/lib/questionBank';
+import { splitPassageAndPrompt, isDummyChoices, ensureStudentGoalInPrompt } from '@/lib/questionBank';
 import MathRenderer from './MathRenderer';
 import GraphRenderer from './GraphRenderer';
 import MarkdownRenderer from './MarkdownRenderer';
@@ -948,6 +948,10 @@ export default function ErrorDetailModal({
                 if (effectivePassage && effectivePrompt.startsWith(effectivePassage.slice(0, 30))) {
                   effectivePrompt = effectivePrompt.replace(effectivePassage, '').trim();
                 }
+
+                const ensuredGoal = ensureStudentGoalInPrompt(effectivePassage, effectivePrompt);
+                effectivePassage = ensuredGoal.passageText;
+                effectivePrompt = ensuredGoal.questionPrompt;
 
                 return (
                   <>

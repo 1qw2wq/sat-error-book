@@ -508,11 +508,11 @@ export function sanitizeSatText(text: string): string {
   s = s.replace(/(?:^|\n)\s*<u>\s*(Text\s*[12AB]|Passage\s*[12AB])\b/gi, '$1 <u>');
 
   // 5. Fix double dollar currency typos (e.g. "$$ 6.50$", "$$ 300$", "$$ 1.50$") and $\text{$70.00}$
-  s = s.replace(/\$\$\s*([0-9]+(?:\,[0-9]+)*(?:\.[0-9]+)?)\$?/g, (m, amt) => '\\$' + amt);
+  s = s.replace(/(?<!\\)\$[ \t]*(\d+(?:,\d{3})*(?:\.\d{1,2})?)\b/g, (_, amt) => `\\$${amt}`);
   s = s.replace(/\\text\{\$([0-9]+(?:\,[0-9]+)*(?:\.[0-9]+)?)\}/g, (m, amt) => '\\text{\\\$' + amt + '}');
 
   // Remove stray OCR dollar signs embedded in English words (e.g. "Which$ choice" -> "Which choice")
-  s = s.replace(/\b([A-Za-z]+)\$([A-Za-z]*)\b/g, '$1 $2').replace(/[ \t]+/g, ' ');
+  s = s.replace(/\b([A-Za-z]+)\$(?!\d)([A-Za-z]*)\b/g, '$1 $2').replace(/[ \t]+/g, ' ');
 
   // Automatically detect and escape currency dollar signs (e.g., $79, $8.75, $100, $1,200.50, $28 million)
   let currencyChanged = true;
@@ -520,7 +520,7 @@ export function sanitizeSatText(text: string): string {
   while (currencyChanged && currencyPasses < 10) {
     currencyChanged = false;
     currencyPasses++;
-    s = s.replace(/(?<!\\)\$([0-9]+(?:\,[0-9]+)*(?:\.[0-9]+)?[\s\S]*?)(?<!\\)\$/g, (full, inner) => {
+    s = s.replace(/(?<!\\)\$[ \t]*([0-9]+(?:\,[0-9]+)*(?:\.[0-9]+)?[\s\S]*?)(?<!\\)\$/g, (full, inner) =>  {
       const startNumMatch = inner.match(/^([0-9]+(?:\,[0-9]+)*(?:\.[0-9]+)?)([\s\S]*)/);
       if (startNumMatch) {
         const rest = startNumMatch[2];
@@ -536,10 +536,9 @@ export function sanitizeSatText(text: string): string {
   }
 
   // Escape unescaped currency dollar signs before numbers (e.g. $79, $8.75, $100) not followed by math delimiters
-  s = s.replace(/(?<!\\)\$([0-9]+(?:\,[0-9]+)*(?:\.[0-9]+)?\b)(?!\$|\s*\\|\s*[\+\-\*\/\=\^\_\{\}\(<=>])/g, (m, g1) => {
+  s = s.replace(/(?<!\\)\$[ \t]*([0-9]+(?:\,[0-9]+)*(?:\.[0-9]+)?\b)(?!\$|\s*\\|\s*[\+\-\*\/\=\^\_\{\}\(<=>])/g, (m, g1) => {
     return '\\$' + g1;
   });
-
   // Protect double backslash LaTeX linebreaks (\\\\ or \\) before stripping stray single backslashes
   s = s.replace(/\\\\/g, '___LATEX_LINEBREAK___');
 

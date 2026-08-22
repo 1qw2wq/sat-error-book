@@ -37,7 +37,7 @@ import GraphRenderer from './GraphRenderer';
 import MarkdownRenderer from './MarkdownRenderer';
 import { gradeStudentResponse, evaluateSATQuestionAnswer } from '../lib/answerGrading';
 import { saveError, saveTestSession, deleteSavedTestSession } from '../lib/db';
-import { transformRawToErrorItem, isDummyChoices, splitPassageAndPrompt, extractEmbeddedChoices } from '../lib/questionBank';
+import { transformRawToErrorItem, isDummyChoices, splitPassageAndPrompt, extractEmbeddedChoices, ensureStudentGoalInPrompt } from '../lib/questionBank';
 import { SATErrorItem, RawSATQuestion, SavedTestSession } from '../types/sat';
 
 export interface BluebookQuestionItem {
@@ -1321,26 +1321,18 @@ export default function BluebookTestShell({
 
             // Clean up duplicate passage in prompt if present
             if (displayPassage && displayPrompt) {
-              const split = splitPassageAndPrompt(displayPrompt, currentQ.subject === 'Math' ? 'Math' : 'Reading and Writing', currentQ.explanation);
-              if (split.passageText && split.questionPrompt) {
-                displayPassage = displayPassage || split.passageText;
-                displayPrompt = split.questionPrompt;
-              } else {
-                const normPassage = displayPassage.replace(/\s+/g, ' ').trim();
-                const normPrompt = displayPrompt.replace(/\s+/g, ' ').trim();
+              const normPassage = displayPassage.replace(/\s+/g, ' ').trim();
+              const normPrompt = displayPrompt.replace(/\s+/g, ' ').trim();
 
-                if (normPrompt.startsWith(normPassage)) {
-                  displayPrompt = displayPrompt.substring(displayPassage.length).trim();
-                } else if (normPrompt.includes(normPassage)) {
-                  const idx = normPrompt.indexOf(normPassage);
-                  displayPrompt = normPrompt.substring(idx + normPassage.length).trim();
-                } else {
-                  const pSub = displayPassage.slice(0, Math.min(35, displayPassage.length)).replace(/\s+/g, ' ').trim();
-                  if (pSub && normPrompt.startsWith(pSub)) {
-                    if (split.questionPrompt) {
-                      displayPrompt = split.questionPrompt;
-                    }
-                  }
+              if (normPrompt.startsWith(normPassage)) {
+                displayPrompt = displayPrompt.substring(displayPassage.length).trim();
+              } else if (normPrompt.includes(normPassage)) {
+                const idx = normPrompt.indexOf(normPassage);
+                displayPrompt = normPrompt.substring(idx + normPassage.length).trim();
+              } else {
+                const pSub = displayPassage.slice(0, Math.min(35, displayPassage.length)).replace(/\s+/g, ' ').trim();
+                if (pSub && normPrompt.startsWith(pSub)) {
+                  displayPrompt = normPrompt.replace(pSub, '').trim();
                 }
               }
             } else if (!displayPassage && displayPrompt) {
@@ -1363,18 +1355,10 @@ export default function BluebookTestShell({
               displayPrompt = embedded.cleanedPrompt;
             }
 
-            // Defensive split: if passageText contains "The student wants to..." or "A student wants to...", move it to questionPrompt
-            if (displayPassage) {
-              const studentWantsMatch = displayPassage.match(/(\n+|(?:(?<=\.)\s+))((?:The|A)\s+student\s+wants\b[\s\S]*)$/i);
-              if (studentWantsMatch && studentWantsMatch.index !== undefined) {
-                const passageClean = displayPassage.substring(0, studentWantsMatch.index).trim();
-                const promptPrefix = studentWantsMatch[2].trim();
-                if (passageClean.length > 15) {
-                  displayPassage = passageClean;
-                  displayPrompt = `${promptPrefix}\n\n${displayPrompt}`;
-                }
-              }
-            }
+            // Defensive split: if passageText contains "The student wants to...", move it to questionPrompt
+            const ensuredGoal = ensureStudentGoalInPrompt(displayPassage, displayPrompt);
+            displayPassage = ensuredGoal.passageText || displayPassage;
+            displayPrompt = ensuredGoal.questionPrompt;
 
             const hasPassage = Boolean(displayPassage && displayPassage.trim().length > 0);
 

@@ -198,6 +198,45 @@ export function restoreUnderline(
 }
 
 /**
+ * Ensures that if a passage ends with a student goal statement (e.g. "The student wants to...", "A student wants to..."),
+ * that goal statement is cleaned, extracted from passageText, and attached to questionPrompt.
+ */
+export function ensureStudentGoalInPrompt(
+  passage?: string,
+  prompt?: string
+): { passageText?: string; questionPrompt: string } {
+  let displayPassage = passage?.trim() || '';
+  let displayPrompt = prompt?.trim() || '';
+
+  if (displayPassage) {
+    const studentWantsMatch = displayPassage.match(
+      /(?:\n+|(?:(?<=\.)\s+)|(?:\s+))((?:[Tt]?he|A)\s+student\s+(?:wants|intends|aims|would\s+like|wishes)\b[\s\S]*)$/i
+    );
+    if (studentWantsMatch && studentWantsMatch.index !== undefined) {
+      const passageClean = displayPassage.substring(0, studentWantsMatch.index).trim();
+      let promptPrefix = studentWantsMatch[1].trim();
+      promptPrefix = promptPrefix
+        .replace(/^([hH]e|student)\s+student\b/i, 'The student')
+        .replace(/^[hH]e\s+student\b/i, 'The student');
+
+      if (passageClean.length > 15) {
+        displayPassage = passageClean;
+        if (!displayPrompt.toLowerCase().includes(promptPrefix.toLowerCase().slice(0, 20))) {
+          displayPrompt = displayPrompt ? `${promptPrefix}\n\n${displayPrompt}` : promptPrefix;
+        }
+      }
+    }
+  }
+
+  // Fix typos like "he student wants" -> "The student wants"
+  displayPrompt = displayPrompt
+    .replace(/^([hH]e|student)\s+student\b/i, 'The student')
+    .replace(/^[hH]e\s+student\b/i, 'The student');
+
+  return { passageText: displayPassage || undefined, questionPrompt: displayPrompt };
+}
+
+/**
  * Splits question text into passage (stimulus) and question prompt for SAT Reading & Writing.
  */
 export function splitPassageAndPrompt(
@@ -216,12 +255,23 @@ export function splitPassageAndPrompt(
     return { questionPrompt: formatMathText(cleanText) };
   }
 
-  // 1. Rhetorical Synthesis notes prompt check
-  const notesMatch = cleanText.match(/(?:following\s+)?notes\s*[:：][\s\S]*?(?:(?:\n\s*[*•▪‣◦⁃・∙·]\s*[^\n]+)+)/i);
-  if (notesMatch && notesMatch.index !== undefined) {
-    const endOfNotesIdx = notesMatch.index + notesMatch[0].length;
-    const passage = cleanText.substring(0, endOfNotesIdx).trim();
-    const prompt = cleanText.substring(endOfNotesIdx).trim();
+  // If cleanText starts with a Student Goal statement, it is purely a question prompt
+  if (/^(?:(?:[Tt]?he|A)\s+student\s+(?:wants|intends|aims|would\s+like|wishes|is\s+trying)|(?:[Tt]?he|A)\s+student[\x27\u2019]?s\s+goal)\b/i.test(cleanText)) {
+    return { questionPrompt: formatMathText(cleanText) };
+  }
+
+  // 1. First Priority: Detect Student Goal statement (e.g. "The student wants to...", "A student wants to...", "he student wants to...")
+  const studentGoalPattern = /(?:\n+|(?:[\.\!\?]["”’\x27]?|<\/u>|<\/ins>|[-_–—]+\s*)\s*|\s+)(?=(?:(?:[Tt]?he|A)\s+student\s+(?:wants|intends|aims|would\s+like|wishes|is\s+trying)|(?:[Tt]?he|A)\s+student[\x27\u2019]?s\s+goal)\b)/i;
+
+  const goalMatch = cleanText.match(studentGoalPattern);
+  if (goalMatch && goalMatch.index !== undefined && goalMatch.index > 30) {
+    let passage = cleanText.substring(0, goalMatch.index).trim();
+    let prompt = cleanText.substring(goalMatch.index + goalMatch[0].length).trim();
+
+    prompt = prompt
+      .replace(/^([hH]e|student)\s+student\b/i, 'The student')
+      .replace(/^[hH]e\s+student\b/i, 'The student');
+
     if (passage.length > 20 && prompt.length > 5) {
       return {
         passageText: formatMathText(passage),
@@ -230,8 +280,29 @@ export function splitPassageAndPrompt(
     }
   }
 
-  // 2. Match standard SAT prompt patterns cleanly (even when touching underscores, </u>, or punctuation)
-  const promptPattern = /(?:\n+|(?:[\.\!\?]["”’']?|<\/u>|<\/ins>|_+\s*)\s*)(?=(?:The\s+student\s+wants|A\s+student\s+wants|Which\s+choice|Which\s+finding|Which\s+quotation|Which\s+statement|Which\s+sentence|Which\s+idea|Which\s+detail|Which\s+claim|Which\s+illustration|Which\s+(?:of\s+the\s+following|option|phrase|word|excerpt|two)|Based\s+on\s+the\s+(?:text|texts|passage|passages|table|graph|chart)|According\s+to\s+the\s+(?:text|texts|passage|passages|table|speaker|author)|According\s+to\s+both\s+texts|What\s+does\s+the\s+(?:text|texts|speaker|author|narrator|character)|What\s+is\s+the\s+(?:main|primary|function|purpose)|What\s+best\s+describes|How\s+does\s+(?:the\s+author|the\s+speaker|the\s+text|Text\s+[12A-B])|Why\s+does\s+(?:the\s+author|the\s+speaker|the\s+character)|As\s+used\s+in\s+(?:the\s+text|line\s+\d+)|The\s+(?:primary|main)\s+purpose|The\s+author(?:['’]s)?\s+primary|The\s+speaker(?:['’]s)?\s+primary|The\s+narrator\s+indicates|In\s+the\s+(?:text|passage|poem|context)[,:]?|In\s+Text\s+[12A-B][,:]?|In\s+Passage\s+[12A-B][,:]?)\b)/i;
+  // 2. Rhetorical Synthesis notes prompt check (with comprehensive bullet list matching)
+  const notesMatch = cleanText.match(/(?:following\s+)?notes\s*[:：][\s\S]*?(?:(?:\n\s*[*•▪‣◦⁃・∙·●■\u2022\u25cf\u2013\u2014\u25a0\u25a1\u25aa\u25ab\-–—]\s*[^\n]+)+)/i);
+  if (notesMatch && notesMatch.index !== undefined) {
+    const endOfNotesIdx = notesMatch.index + notesMatch[0].length;
+    let passage = cleanText.substring(0, endOfNotesIdx).trim();
+    let prompt = cleanText.substring(endOfNotesIdx).trim();
+
+    const promptGoalMatch = prompt.match(/((?:[Tt]?he|A)\s+student\s+(?:wants|intends|aims|would\s+like|wishes)[\s\S]*)/i);
+    if (promptGoalMatch) {
+      prompt = promptGoalMatch[1].trim();
+      prompt = prompt.replace(/^[hH]e\s+student\b/i, 'The student');
+    }
+
+    if (passage.length > 20 && prompt.length > 5) {
+      return {
+        passageText: formatMathText(passage),
+        questionPrompt: formatMathText(prompt),
+      };
+    }
+  }
+
+  // 3. Match standard SAT prompt patterns cleanly (even when touching underscores, </u>, or punctuation)
+  const promptPattern = /(?:\n+|(?:[\.\!\?]["”’']?|<\/u>|<\/ins>|[-_–—]+\s*)\s*)(?=(?:The\s+student\s+wants|A\s+student\s+wants|Which\s+choice|Which\s+finding|Which\s+quotation|Which\s+statement|Which\s+sentence|Which\s+idea|Which\s+detail|Which\s+claim|Which\s+illustration|Which\s+(?:of\s+the\s+following|option|phrase|word|excerpt|two)|Based\s+on\s+the\s+(?:text|texts|passage|passages|table|graph|chart)|According\s+to\s+the\s+(?:text|texts|passage|passages|table|speaker|author)|According\s+to\s+both\s+texts|What\s+does\s+the\s+(?:text|texts|speaker|author|narrator|character)|What\s+is\s+the\s+(?:main|primary|function|purpose)|What\s+best\s+describes|How\s+does\s+(?:the\s+author|the\s+speaker|the\s+text|Text\s+[12A-B])|Why\s+does\s+(?:the\s+author|the\s+speaker|the\s+character)|As\s+used\s+in\s+(?:the\s+text|line\s+\d+)|The\s+(?:primary|main)\s+purpose|The\s+author(?:['’]s)?\s+primary|The\s+speaker(?:['’]s)?\s+primary|The\s+narrator\s+indicates|In\s+the\s+(?:text|passage|poem|context)[,:]?|In\s+Text\s+[12A-B][,:]?|In\s+Passage\s+[12A-B][,:]?)\b)/i;
 
   const match = cleanText.match(promptPattern);
   if (match && match.index !== undefined && match.index > 20) {
@@ -249,6 +320,10 @@ export function splitPassageAndPrompt(
 
     // Clean stray closing tags from prompt
     prompt = prompt.replace(/^<\/(?:u|ins)>/i, '').trim();
+
+    const ensured = ensureStudentGoalInPrompt(passage, prompt);
+    passage = ensured.passageText || passage;
+    prompt = ensured.questionPrompt;
 
     if (passage.length > 20 && prompt.length > 5) {
       return {

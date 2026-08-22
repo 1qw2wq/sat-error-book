@@ -24,7 +24,7 @@ import {
 import { SATErrorItem, SATSubject, MasteryStatus } from '@/types/sat';
 import { saveError, recordReview } from '@/lib/db';
 import { gradeStudentResponse, evaluateSATQuestionAnswer } from '@/lib/answerGrading';
-import { isDummyChoices, splitPassageAndPrompt } from '@/lib/questionBank';
+import { isDummyChoices, splitPassageAndPrompt, ensureStudentGoalInPrompt } from '@/lib/questionBank';
 import MathRenderer from './MathRenderer';
 import MarkdownRenderer from './MarkdownRenderer';
 import GraphRenderer from './GraphRenderer';
@@ -166,11 +166,12 @@ export default function ErrorQuizModal({
     let passage = err.passageText?.trim() && err.passageText.trim().toLowerCase() !== 'none' ? err.passageText.trim() : undefined;
     let prompt = err.questionText?.trim() || '';
 
-    // Always run splitPassageAndPrompt to ensure reading questions have distinct passage & prompt
-    const split = splitPassageAndPrompt(prompt, err.subject, err.explanation);
-    if (split.passageText && split.questionPrompt) {
-      passage = passage || split.passageText;
-      prompt = split.questionPrompt;
+    if (!passage && prompt) {
+      const split = splitPassageAndPrompt(prompt, err.subject, err.explanation);
+      if (split.passageText && split.questionPrompt) {
+        passage = split.passageText;
+        prompt = split.questionPrompt;
+      }
     } else if (passage && prompt) {
       const normPassage = passage.replace(/\s+/g, ' ').trim();
       const normPrompt = prompt.replace(/\s+/g, ' ').trim();
@@ -181,6 +182,10 @@ export default function ErrorQuizModal({
         prompt = normPrompt.substring(idx + normPassage.length).trim();
       }
     }
+
+    const ensuredGoal = ensureStudentGoalInPrompt(passage, prompt);
+    passage = ensuredGoal.passageText;
+    prompt = ensuredGoal.questionPrompt;
 
     return {
       id: err.id,
