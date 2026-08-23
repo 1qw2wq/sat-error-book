@@ -210,7 +210,7 @@ export function ensureStudentGoalInPrompt(
 
   if (displayPassage) {
     const studentWantsMatch = displayPassage.match(
-      /(?:\n+|(?:(?<=\.)\s+)|(?:\s+))((?:[Tt]?he|A)\s+student\s+(?:wants|intends|aims|would\s+like|wishes)\b[\s\S]*)$/i
+      /(?:\n+|(?:(?<=[\.\!\?]["”’']?)\s+)|(?:\s+))((?:[Tt]?he|A)\s+student(?:[\x27\u2019]s\s+goal\s+is\s+to|\s+(?:wants|intends|aims|would\s+like|wishes|is\s+trying))\b[\s\S]*)$/i
     );
     if (studentWantsMatch && studentWantsMatch.index !== undefined) {
       const passageClean = displayPassage.substring(0, studentWantsMatch.index).trim();

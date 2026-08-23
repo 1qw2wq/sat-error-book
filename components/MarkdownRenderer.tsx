@@ -32,20 +32,21 @@ function extractStringFromChildren(node: React.ReactNode): string {
 function escapeNonHtmlAngleBrackets(str: string): string {
   if (!str) return '';
   const validHtmlTagRegex = /<\/?(?:u|ins|b|strong|em|i|math|annotation|semantics|mrow|mfrac|msup|msub|msubsup|mroot|msqrt|mtable|mtr|mtd|mtext|mo|mi|mn|mspace|mfenced|mover|munder|menclose|mstyle|mpadded|table|thead|tbody|tr|th|td|p|div|br|span|img|sup|sub|a|ul|ol|li|mark)\b[^>]*>/gi;
-  const mathBlockRegex = /(<math[\s\S]*?<\/math>|\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\$(?:\\begin\{[a-z*]+\}[\s\S]*?\\end\{[a-z*]+\}|[^$\n]+?)(?<!\\)\$)/gi;
+  // Single $ expressions must not cross table cell pipes (|) or newlines
+  const mathBlockRegex = /(<math[\s\S]*?<\/math>|\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\$(?:\\begin\{[a-z*]+\}[\s\S]*?\\end\{[a-z*]+\}|[^$\n|]+?)(?<!\\)\$)/gi;
 
   const savedPlaceholders: string[] = [];
 
   // 1. Protect valid HTML tags FIRST so they are never swallowed by math blocks
   let text = str.replace(validHtmlTagRegex, (tag) => {
     savedPlaceholders.push(tag);
-    return `___MATH_RAW_BLOCK_${savedPlaceholders.length - 1}___`;
+    return `SATMDPLCHLD${savedPlaceholders.length - 1}X`;
   });
 
   // 2. Protect MathML & LaTeX Math blocks so their < and > are NEVER turned into &lt; / &gt;
   text = text.replace(mathBlockRegex, (match) => {
     savedPlaceholders.push(match);
-    return `___MATH_RAW_BLOCK_${savedPlaceholders.length - 1}___`;
+    return `SATMDPLCHLD${savedPlaceholders.length - 1}X`;
   });
 
   // 3. Escape remaining raw prose < and > to prevent broken HTML parsing in rehypeRaw
@@ -54,7 +55,7 @@ function escapeNonHtmlAngleBrackets(str: string): string {
     .replace(/>/g, '&gt;');
 
   // 4. Restore protected Math and HTML blocks
-  return escapedText.replace(/___MATH_RAW_BLOCK_(\d+)___/g, (_, idx) => savedPlaceholders[parseInt(idx, 10)] || '');
+  return escapedText.replace(/SATMDPLCHLD(\d+)X/g, (_, idx) => savedPlaceholders[parseInt(idx, 10)] || '');
 }
 
 export default function MarkdownRenderer({
@@ -76,7 +77,7 @@ export default function MarkdownRenderer({
     if (text.includes('<math')) {
       text = text.replace(/<math[\s\S]*?<\/math>/gi, (m) => {
         const latex = convertMathmlToLatex(m);
-        return `$${latex}$`;
+        return latex ? `$${latex}$` : '';
       });
     }
 

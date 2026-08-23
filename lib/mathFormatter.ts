@@ -375,11 +375,11 @@ export function convertMathmlToLatex(mathml: string): string {
     res = res.replace(/<mrow[^>]*>([\s\S]*?)<\/mrow>/gi, (_, inner) => parseNodes(inner));
 
     res = res.replace(/<mo[^>]*>([\s\S]*?)<\/mo>/gi, (_, text) => {
-      const t = text.trim();
+      const t = text.replace(/<[^>]+>/g, '').trim();
       if (t === '±') return '\\pm ';
-      if (t === '≤' || t === '&le;') return '\\le ';
-      if (t === '≥' || t === '&ge;') return '\\ge ';
-      if (t === '≠' || t === '&ne;') return '\\neq ';
+      if (t === '≤' || t === '&le;' || t === '<=') return '\\le ';
+      if (t === '≥' || t === '&ge;' || t === '>=') return '\\ge ';
+      if (t === '≠' || t === '&ne;' || t === '!=') return '\\neq ';
       if (t === '×') return '\\times ';
       if (t === '÷') return '\\div ';
       if (t === '·' || t === '⋅') return '\\cdot ';
@@ -398,7 +398,7 @@ export function convertMathmlToLatex(mathml: string): string {
     });
 
     res = res.replace(/<mi[^>]*>([\s\S]*?)<\/mi>/gi, (_, text) => {
-      const t = text.trim();
+      const t = text.replace(/<[^>]+>/g, '').trim();
       if (t === 'π') return '\\pi ';
       if (t === 'θ') return '\\theta ';
       if (t === 'α') return '\\alpha ';
@@ -417,8 +417,8 @@ export function convertMathmlToLatex(mathml: string): string {
       return t;
     });
 
-    res = res.replace(/<mn[^>]*>([\s\S]*?)<\/mn>/gi, (_, text) => text.trim().replace(/(?<!\\)%/g, '\\%').replace(/(?<!\\)\$/g, '\\$'));
-    res = res.replace(/<mtext[^>]*>([\s\S]*?)<\/mtext>/gi, (_, text) => `\\text{${text.replace(/(?<!\\)\$/g, '\\$').replace(/(?<!\\)%/g, '\\%')}}`);
+    res = res.replace(/<mn[^>]*>([\s\S]*?)<\/mn>/gi, (_, text) => text.replace(/<[^>]+>/g, '').trim().replace(/(?<!\\)%/g, '\\%').replace(/(?<!\\)\$/g, '\\$'));
+    res = res.replace(/<mtext[^>]*>([\s\S]*?)<\/mtext>/gi, (_, text) => `\\text{${text.replace(/<[^>]+>/g, '').replace(/(?<!\\)\$/g, '\\$').replace(/(?<!\\)%/g, '\\%')}}`);
     res = res.replace(/<[^>]+>/g, '');
 
     return res.trim();
@@ -442,6 +442,11 @@ export function convertMathmlToLatex(mathml: string): string {
     .replace(/\{\s+/g, '{')
     .replace(/\s+\}/g, '}')
     .trim();
+
+  // If result is empty or meaningless punctuation, return empty string
+  if (!result || /^[\s,\.;:\?!]+$/.test(result)) {
+    return '';
+  }
 
   return result;
 }
@@ -469,7 +474,7 @@ export function sanitizeSatText(text: string): string {
   if (s.includes('<math')) {
     s = s.replace(/<math[\s\S]*?<\/math>/gi, (m) => {
       const latex = convertMathmlToLatex(m);
-      return `$${latex}$`;
+      return latex ? `$${latex}$` : '';
     });
   }
 
@@ -511,10 +516,17 @@ export function sanitizeSatText(text: string): string {
   s = s.replace(/(?<!\\)\$[ \t]*(\d+(?:,\d{3})*(?:\.\d{1,2})?)\b/g, (_, amt) => `\\$${amt}`);
   s = s.replace(/\\text\{\$([0-9]+(?:\,[0-9]+)*(?:\.[0-9]+)?)\}/g, (m, amt) => '\\text{\\\$' + amt + '}');
 
+  // Clean empty or stray double dollars
+  s = s.replace(/\$\$\s*\$\$/g, '');
+  s = s.replace(/\$\$\s*\)/g, ')');
+  s = s.replace(/\(\s*\$\$\s*\)/g, '');
+
   // Remove stray OCR dollar signs embedded in English words (e.g. "Which$ choice" -> "Which choice")
   s = s.replace(/\b([A-Za-z]+)\$(?!\d)([A-Za-z]*)\b/g, '$1 $2').replace(/[ \t]+/g, ' ');
 
-  // Automatically detect and escape currency dollar signs (e.g., $79, $8.75, $100, $1,200.50, $28 million)
+  // Automatically detect and escape currency dollar signs (e.g., $79, $8.75, $100, $1,200.50, $28 million, $ per person, $ in an account)
+  s = s.replace(/(?<!\\)\$\s*(?:per\s+(?:person|day|hour|month|year|item|ticket|umbrella|class|week|lesson|unit|mile|minute)|each|off\b|for\s+each|in\s+an?\s+account|by\s+selling|to\s+rent|enrollment\s+fee|membership\s+fee|deposit|fee\b)/gi, (match) => `\\${match.trim()}`);
+
   let currencyChanged = true;
   let currencyPasses = 0;
   while (currencyChanged && currencyPasses < 10) {
@@ -540,7 +552,7 @@ export function sanitizeSatText(text: string): string {
     return '\\$' + g1;
   });
   // Protect double backslash LaTeX linebreaks (\\\\ or \\) before stripping stray single backslashes
-  s = s.replace(/\\\\/g, '___LATEX_LINEBREAK___');
+  s = s.replace(/\\\\/g, 'SATLATEXLINEBREAKX');
 
   // 6. Remove stray backslashes before numbers, spaces, or OCR typos outside math commands
   s = s.replace(/\\+\s+(?=[0-9A-Za-z<>=])/g, '');
@@ -551,7 +563,7 @@ export function sanitizeSatText(text: string): string {
   s = s.replace(/\\(?![a-zA-Z\$\%_\#\&\{\}])/g, '');
 
   // Restore LaTeX double backslash linebreaks
-  s = s.replace(/___LATEX_LINEBREAK___/g, ' \\\\ ');
+  s = s.replace(/SATLATEXLINEBREAKX/g, ' \\\\ ');
 
   // 8. Fix OCR punctuation spacing
   s = s.replace(/[ \t]+([,\.\;\:\?\!])/g, '$1');
@@ -648,63 +660,80 @@ export function formatMathText(rawText: string): string {
   if (s.includes('<math')) {
     s = s.replace(/<math[\s\S]*?<\/math>/gi, (m) => {
       const latex = convertMathmlToLatex(m);
-      return `$${latex}$`;
+      return latex ? `$${latex}$` : '';
     });
   }
 
-  // 2. Protect existing math blocks ($...$ and $$...$$) before prose/inequality operations
+  // 2. Protect valid HTML tags FIRST so they are never broken by math/inequality substitutions
+  const protectedHtmlTags: string[] = [];
+  const htmlTagRegex = /<\/?(?:u|ins|b|strong|em|i|math|annotation|semantics|mrow|mfrac|msup|msub|msubsup|mroot|msqrt|mtable|mtr|mtd|mtext|mo|mi|mn|mspace|mfenced|mover|munder|menclose|mstyle|mpadded|table|thead|tbody|tr|th|td|p|div|br|span|img|sup|sub|a|ul|ol|li|mark)\b[^>]*>/gi;
+  s = s.replace(htmlTagRegex, (tag) => {
+    protectedHtmlTags.push(tag);
+    return `SATTAGPLCHLD${protectedHtmlTags.length - 1}X`;
+  });
+
+  // 3. Protect existing math blocks ($...$ and $$...$$) before prose/inequality operations
   const protectedMath: string[] = [];
-  s = s.replace(/(\$\$[\s\S]*?\$\$|(?<!\\)\$[^\$\n]+?(?<!\\)\$)/g, (match) => {
+  // Note: single $ math expressions MUST NOT cross markdown table pipes (|) or newlines (\n)
+  s = s.replace(/(\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\$(?:\\begin\{[a-z*]+\}[\s\S]*?\\end\{[a-z*]+\}|[^$\n|]+?)(?<!\\)\$)/g, (match) => {
     protectedMath.push(match);
-    return `___SAT_MATH_BLOCK_${protectedMath.length - 1}___`;
+    return `SATMATHPLCHLD${protectedMath.length - 1}X`;
   });
 
   // Reconstruct flattened table structures into markdown tables
   s = reconstructTablesFromText(s);
 
-  // 3. Protect currency dollar amounts with exact captured values
+  // 4. Protect currency dollar amounts with exact captured values
   s = s.replace(/(?<!\\)\$(\d+(?:,\d{3})*(?:\.\d{1,2})?)\b/g, (_, amt) => `\\$${amt}`);
 
-  // 4. Spacing around HTML underline tags
+  // 5. Spacing around restored HTML tags
+  s = s.replace(/SATTAGPLCHLD(\d+)X/g, (match, idx) => {
+    const original = protectedHtmlTags[parseInt(idx, 10)];
+    return original || match;
+  });
   s = s.replace(/<\/u>([A-Za-z0-9])/g, '</u> $1');
   s = s.replace(/([A-Za-z0-9])<u>/g, '$1 <u>');
 
-  // 5. Paired passage headers (Text 1, Text 2, Passage 1, Passage 2)
-  s = s.replace(/(?:^|\n\n|\n)\s*(?:<u>\s*)?(Text\s*[12AB]|Passage\s*[12AB])(?:\s*<\/u>)?(?:\s*[:\-–]?\s*)([A-Za-z0-9"“'‘<])/g, (_, title, nextChar) => {
+  // Protect HTML tags again before inequality operations
+  protectedHtmlTags.length = 0;
+  s = s.replace(htmlTagRegex, (tag) => {
+    protectedHtmlTags.push(tag);
+    return `SATTAGPLCHLD${protectedHtmlTags.length - 1}X`;
+  });
+
+  // 6. Paired passage headers (Text 1, Text 2, Passage 1, Passage 2)
+  s = s.replace(/(?:^|\n\n|\n)\s*(?:SATTAGPLCHLD\d+X\s*)?(Text\s*[12AB]|Passage\s*[12AB])(?:\s*SATTAGPLCHLD\d+X)?(?:\s*[:\-–]?\s*)([A-Za-z0-9"“'‘<])/g, (_, title, nextChar) => {
     return `\n\n**${title.trim()}**\n\n${nextChar}`;
   });
   s = s.trim();
 
-  // If <u> sits right before **Text 1**, move <u> after **Text 1**
-  s = s.replace(/<u>\s*(\*\*(?:Text\s*[12AB]|Passage\s*[12AB])\*\*)\s*/gi, '$1\n\n<u>');
-
-  // 6. Separate SAT introductory lead-in sentences
+  // 7. Separate SAT introductory lead-in sentences
   s = s.replace(
     /(^|\n\n|\n)((?:The following (?:text|passage)|This (?:text|passage)|Excerpt|Adapted from|In the following (?:text|passage))\s+(?:is|was|has been|from|adapted|excerpted|taken)[^\n]+?[\.\?!]["”']?)\s*(?=[A-Z"“])/gi,
     '$1$2\n\n'
   );
 
-  // 7. Separate copyright notes
+  // 8. Separate copyright notes
   s = s.replace(/([^\n])\s*((?:[©\u00A9]|\([cC]\)|Copyright\b)[^\n]*)/gi, '$1\n\n$2');
 
-  // 8. Bullet points for student notes
+  // 9. Bullet points for student notes
   s = s.replace(/((?:following\s+)?notes\s*[:：])\s*/gi, '$1\n\n');
   s = s.replace(/(?:^|\n)\s*[•\u2022▪\u25AA‣\u2023◦\u25E6⁃\u2043・\u30FB∙\u2219·\u00B7]\s*/g, '\n* ');
   s = s.replace(/([^\n])\s+[•\u2022▪\u25AA‣\u2023◦\u25E6⁃\u2043・\u30FB∙\u2219·\u00B7]\s*/g, '$1\n* ');
 
-  // 9. Unwrap entire OCR question prompts mistakenly wrapped in single outer $ ... $
+  // 10. Unwrap entire OCR question prompts mistakenly wrapped in single outer $ ... $
   s = s.replace(/^\s*\$([^\$]+?\b(?:What is|Which of the following|Find the value|What value|Calculate|Solve for|How many)\b[^\$]+)\$\s*$/i, (match, inner) => {
     if (inner.includes('\\begin') || inner.includes('\\text')) return match;
     return inner.trim();
   });
 
-  // 10. Format & normalize GFM markdown tables with proper spacing
+  // 11. Format & normalize GFM markdown tables with proper spacing
   if (s.includes('|')) {
     s = s.replace(/(?<=\|[^\n]*)\n\s*\n+(?=\s*\|)/g, '\n');
     s = s.replace(/^(\|(?::?---+:?\|)+)$/gm, (match) => match);
   }
 
-  // 11. Fix OCR stripped inequality choices & prompts in prose
+  // 12. Fix OCR stripped inequality choices & prompts in prose
   s = s.replace(/\bg\(x\)\s*f\(x\)\b/g, '$g(x) \\lt f(x)$');
   s = s.replace(/^x\s+h$/i, '$x \\lt h$');
   s = s.replace(/^h\s+x\s+k$/i, '$h \\lt x \\lt k$');
@@ -715,27 +744,33 @@ export function formatMathText(rawText: string): string {
   s = s.replace(/\bwhere\s+10\s*n\s*50\b/gi, 'where $10 \\le n \\le 50$');
   s = s.replace(/\b10\s*n\s*50\b/gi, '$10 \\le n \\le 50$');
 
-  // 12. Format compound inequalities like "2 < x < 5", "-3 < 2x + 1 < 7", "h < x < k", "0 <= a <= b <= 1" into math
-  const compoundInequalityPattern = /(?<![\$a-zA-Z0-9\\])(?:[\-+]?\d+(?:\.\d+)?|[a-zA-Z0-9_\(\)]+)\s*(?:<=|>=|<|>|\\le|\\ge)\s*(?:[\-+]?\d*(?:[a-zA-Z0-9_]|\([^\)]+\))*(?:\s*[\+\-]\s*[a-zA-Z0-9_]+)?|[a-zA-Z0-9_\(\)]+)\s*(?:<=|>=|<|>|\\le|\\ge)\s*(?:[\-+]?\d+(?:\.\d+)?|[a-zA-Z0-9_\(\)]+)(?:\s*(?:<=|>=|<|>|\\le|\\ge)\s*(?:[\-+]?\d+(?:\.\d+)?|[a-zA-Z0-9_\(\)]+))?(?![\$a-zA-Z0-9\\])/g;
+  // 13. Format compound inequalities like "2 < x < 5", "-3 < 2x + 1 < 7", "h < x < k", "0 <= a <= b <= 1" into math
+  const compoundInequalityPattern = /(?<![\$a-zA-Z0-9\\_])(?:[\-+]?\d+(?:\.\d+)?|[a-zA-Z0-9_\(\)]+)\s*(?:<=|>=|<|>|\\le|\\ge)\s*(?:[\-+]?\d*(?:[a-zA-Z0-9_]|\([^\)]+\))*(?:\s*[\+\-]\s*[a-zA-Z0-9_]+)?|[a-zA-Z0-9_\(\)]+)\s*(?:<=|>=|<|>|\\le|\\ge)\s*(?:[\-+]?\d+(?:\.\d+)?|[a-zA-Z0-9_\(\)]+)(?:\s*(?:<=|>=|<|>|\\le|\\ge)\s*(?:[\-+]?\d+(?:\.\d+)?|[a-zA-Z0-9_\(\)]+))?(?![\$a-zA-Z0-9\\_])/g;
 
   s = s.replace(compoundInequalityPattern, (m) => {
+    if (m.includes('SATTAGPLCHLD') || m.includes('SATMATHPLCHLD')) return m;
     let clean = m.trim();
     clean = clean.replace(/<=/g, ' \\le ').replace(/>=/g, ' \\ge ').replace(/</g, ' \\lt ').replace(/>/g, ' \\gt ');
     clean = clean.replace(/\s+/g, ' ');
     return `$${clean}$`;
   });
 
-  // 13. Format standalone simple inequalities like "x > k", "x < h", "y >= -2" into math if not already wrapped
-  const mathVars = 'x|y|z|a|b|c|k|h|m|n|p|q|r|s|t|u|v|w|f\\(x\\)|g\\(x\\)|h\\(x\\)|p\\(x\\)';
-  const simpleIneqRegex = new RegExp(`(?<![\\$a-zA-Z0-9\\\\])\\b(${mathVars}|[\\-+]?\\d+(?:\\.\\d+)?)\\s*([<>]=?|\\\\(?:le|ge|ne|neq))\\s*(${mathVars}|[\\-+]?\\d+(?:\\.\\d+)?)\\b(?![\\$a-zA-Z0-9\\\\])`, 'gi');
+  // 14. Format standalone simple inequalities like "x > k", "x < h", "y >= -2" into math if not already wrapped
+  // Explicitly do not match HTML tags or placeholders
+  const mathVars = 'x|y|z|a|b|c|k|h|m|n|p|q|r|s|t|v|w|f\\(x\\)|g\\(x\\)|h\\(x\\)|p\\(x\\)';
+  const simpleIneqRegex = new RegExp(`(?<![\\$a-zA-Z0-9\\\\_\\/])\\b(${mathVars}|[\\-+]?\\d+(?:\\.\\d+)?)\\s*([<>]=?|\\\\(?:le|ge|ne|neq))\\s*(${mathVars}|[\\-+]?\\d+(?:\\.\\d+)?)\\b(?![\\$a-zA-Z0-9\\\\_])`, 'gi');
 
-  s = s.replace(simpleIneqRegex, (_, v1, op, v2) => {
+  s = s.replace(simpleIneqRegex, (match, v1, op, v2) => {
+    if (match.includes('SATTAGPLCHLD') || match.includes('SATMATHPLCHLD')) return match;
     let cleanOp = op === '<' ? '\\lt ' : op === '>' ? '\\gt ' : op === '<=' ? '\\le ' : op === '>=' ? '\\ge ' : op;
     return `$${v1} ${cleanOp} ${v2}$`;
   });
 
-  // 14. Restore protected math blocks
-  s = s.replace(/___SAT_MATH_BLOCK_(\d+)___/g, (_, idx) => protectedMath[parseInt(idx, 10)] || '');
+  // 15. Restore protected HTML tags
+  s = s.replace(/SATTAGPLCHLD(\d+)X/g, (_, idx) => protectedHtmlTags[parseInt(idx, 10)] || '');
+
+  // 16. Restore protected math blocks
+  s = s.replace(/SATMATHPLCHLD(\d+)X/g, (_, idx) => protectedMath[parseInt(idx, 10)] || '');
 
   // Ensure systems of equations have line breaks \\ between equations in \begin{aligned}
   s = s.replace(/(\\begin\{(?:aligned|cases|array)\}[\s\S]*?\\end\{(?:aligned|cases|array)\})/gi, (block) => {
@@ -757,7 +792,7 @@ export function formatMathText(rawText: string): string {
     return `${cleanP1}<u>${inner}</u>${cleanP2}`;
   });
 
-  // 15. Protect KaTeX math blocks ($...$) by replacing raw < and > with \\lt and \\gt to prevent HTML/KaTeX parse errors
+  // 17. Protect KaTeX math blocks ($...$) by replacing raw < and > with \\lt and \\gt to prevent HTML/KaTeX parse errors
   s = s.replace(/\$([^\$]+)\$/g, (_, inner) => {
     if (/<u\b|<\/u>/i.test(inner)) {
       return `$${inner}$`;

@@ -638,11 +638,11 @@ export function convertMathmlToLatex(mathml: string): string {
     });
 
     res = res.replace(/<mo[^>]*>([\s\S]*?)<\/mo>/gi, (_, t) => {
-      const txt = t.trim().replace(/\\"/g, '"');
+      const txt = t.replace(/<[^>]+>/g, '').trim().replace(/\\"/g, '"');
       if (txt === '≡') return ' \\equiv ';
-      if (txt === '≤' || txt === '&le;') return ' \\le ';
-      if (txt === '≥' || txt === '&ge;') return ' \\ge ';
-      if (txt === '≠' || txt === '&ne;') return ' \\ne ';
+      if (txt === '≤' || txt === '&le;' || txt === '<=') return ' \\le ';
+      if (txt === '≥' || txt === '&ge;' || txt === '>=') return ' \\ge ';
+      if (txt === '≠' || txt === '&ne;' || txt === '!=') return ' \\ne ';
       if (txt === '<' || txt === '&lt;') return ' \\lt ';
       if (txt === '>' || txt === '&gt;') return ' \\gt ';
       if (txt === '×') return ' \\times ';
@@ -677,7 +677,7 @@ export function convertMathmlToLatex(mathml: string): string {
     });
 
     res = res.replace(/<mi[^>]*>([\s\S]*?)<\/mi>/gi, (_, t) => {
-      const txt = t.trim().replace(/\$/g, '\\$').replace(/\\"/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+      const txt = t.replace(/<[^>]+>/g, '').trim().replace(/\$/g, '\\$').replace(/\\"/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
       if (txt === 'sin' || txt === 'cos' || txt === 'tan' || txt === 'log' || txt === 'ln' || txt === 'sec' || txt === 'csc' || txt === 'cot') {
         return `\\${txt} `;
       }
@@ -700,7 +700,7 @@ export function convertMathmlToLatex(mathml: string): string {
     });
 
     res = res.replace(/<mn[^>]*>([\s\S]*?)<\/mn>/gi, (_, t) => {
-      return t.trim().replace(/%/g, '\\%').replace(/\$/g, '\\$').replace(/_/g, '{\\_}');
+      return t.replace(/<[^>]+>/g, '').trim().replace(/%/g, '\\%').replace(/\$/g, '\\$').replace(/_/g, '{\\_}');
     });
 
     res = res.replace(/<\/?([a-z0-9]+)[^>]*>/gi, '');
@@ -746,6 +746,10 @@ export function convertMathmlToLatex(mathml: string): string {
     .replace(/•/g, '\\cdot ')
     .replace(/\s+/g, ' ')
     .trim();
+
+  if (!finalLatex || /^[\s,\.;:\?!]+$/.test(finalLatex)) {
+    return '';
+  }
 
   return finalLatex;
 }
