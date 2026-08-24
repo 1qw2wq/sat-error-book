@@ -65,8 +65,8 @@ export default function MarkdownRenderer({
   onHighlightClick,
   explanation,
 }: MarkdownRendererProps) {
-  const normalizedContent = useMemo(() => {
-    if (!content) return '';
+  const { normalizedContent, mathBlocks } = useMemo(() => {
+    if (!content) return { normalizedContent: '', mathBlocks: [] };
     let text = sanitizeSatText(content);
     text = formatMathText(text);
 
@@ -83,7 +83,18 @@ export default function MarkdownRenderer({
 
     text = escapeNonHtmlAngleBrackets(text);
 
-    return text;
+    // Protect ALL math blocks from ReactMarkdown parsing so LaTeX underscores, asterisks, etc. are never corrupted
+    const blocks: { text: string; isBlock: boolean }[] = [];
+    const mathRegex = /(<math[\s\S]*?<\/math>|\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\$(?:\\begin\{[a-z*]+\}[\s\S]*?\\end\{[a-z*]+\}|[^$\n|]+?)(?<!\\)\$|`[^`]+?`|\\begin\{([a-z*]+)\}[\s\S]*?\\end\{\2\})/gi;
+
+    const protectedMarkdown = text.replace(mathRegex, (match) => {
+      const isBlock = match.startsWith('$$') || match.startsWith('\\[') || match.startsWith('\\begin');
+      const idx = blocks.length;
+      blocks.push({ text: match, isBlock });
+      return isBlock ? `<span data-sat-math-block="${idx}"></span>` : `<span data-sat-math="${idx}"></span>`;
+    });
+
+    return { normalizedContent: protectedMarkdown, mathBlocks: blocks };
   }, [content, explanation]);
 
   if (!normalizedContent) return null;
@@ -108,6 +119,26 @@ export default function MarkdownRenderer({
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeRaw]}
         components={{
+          span: ({ node, ...props }: any) => {
+            if (props['data-sat-math'] !== undefined || props['data-sat-math-block'] !== undefined) {
+              const isBlock = props['data-sat-math-block'] !== undefined;
+              const rawIdx = props['data-sat-math-block'] ?? props['data-sat-math'];
+              const idx = parseInt(String(rawIdx), 10);
+              const item = mathBlocks[idx];
+              if (item) {
+                return (
+                  <span className={isBlock ? 'block my-2 text-center overflow-x-auto w-full' : 'inline-block px-0.5 align-baseline'}>
+                    <MathRenderer
+                      text={item.text}
+                      highlights={highlights}
+                      onHighlightClick={onHighlightClick}
+                    />
+                  </span>
+                );
+              }
+            }
+            return <span {...props}>{renderChildrenWithMath(props.children)}</span>;
+          },
           p: ({ children }) => {
             const textContent = extractStringFromChildren(children).trim();
 

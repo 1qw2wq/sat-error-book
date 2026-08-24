@@ -138,7 +138,7 @@ function renderFormattedProseLeaves(
   highlights?: HighlightItem[],
   onHighlightClick?: (highlight: HighlightItem, e: React.MouseEvent) => void
 ) {
-  const formatTagRegex = /(<u[^>]*>[\s\S]*?<\/u>|<ins[^>]*>[\s\S]*?<\/ins>|\\underline\{[^\}]*\}|<strong[^>]*>[\s\S]*?<\/strong>|<b[^>]*>[\s\S]*?<\/b>|\*\*[\s\S]*?\*\*|\*[^\*]+?\*|_[^_]+?_|_____+\b)/gi;
+  const formatTagRegex = /(<u[^>]*>[\s\S]*?<\/u>|<ins[^>]*>[\s\S]*?<\/ins>|\\underline\{[^\}]*\}|<strong[^>]*>[\s\S]*?<\/strong>|<b[^>]*>[\s\S]*?<\/b>|\*\*[\s\S]*?\*\*|\*[^\*]+?\*|_{2,}|(?<!\w)_[^_]+?_(?!\w))/gi;
   const tagParts = prose.split(formatTagRegex);
 
   if (tagParts.length > 1) {
@@ -169,13 +169,13 @@ function renderFormattedProseLeaves(
         );
       }
 
-      if (/^_____+\b/.test(tagPart)) {
+      if (/^_{2,}$/.test(tagPart)) {
         return (
           <span
             key={`blank-${baseKey}-${tIdx}`}
-            className="inline-block border-b-2 border-slate-700 dark:border-slate-300 min-w-12 mx-1 px-1 text-center font-mono font-medium text-inherit"
+            className="inline-block border-b-2 border-slate-700 dark:border-slate-300 min-w-14 mx-1.5 px-2 text-center font-mono font-medium text-inherit align-baseline"
           >
-            &nbsp;&nbsp;&nbsp;&nbsp;
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
           </span>
         );
       }

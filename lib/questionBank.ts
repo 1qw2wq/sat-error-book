@@ -25,8 +25,9 @@ export function restoreUnderline(
   }
 
   let expl = explanation || '';
+  let explAnalysis = expl;
   if (/中文解析|【解析】|解析[：:]/i.test(expl)) {
-    expl = expl.substring(expl.search(/中文解析|【解析】|解析[：:]/i));
+    explAnalysis = expl.substring(expl.search(/中文解析|【解析】|解析[：:]/i));
   }
 
   // Special Case A: Two-underlined questions (e.g. Alabaster poem, Cave formations)
@@ -66,132 +67,127 @@ export function restoreUnderline(
     }
   }
 
-  // 1. Direct quote extraction from explanation after 划线 / 画线
-  const matchPats = [
-    /[划画]线(?:短语|部分|句|词|句子|内容|文本|主张|观点)?[\s\S]{0,50}?[“"']([^“”"'\n]{5,250})[”"']/g,
-    /“([A-Za-z][^“”\n]{6,250})”/g,
-    /"([A-Za-z][^"\n]{6,250})"/g,
-  ];
-
-  for (const pat of matchPats) {
-    let m: RegExpExecArray | null;
-    while ((m = pat.exec(expl)) !== null) {
-      const cand = m[1].trim();
-      // Candidate must contain English words and be part of normalized
-      if (cand && /[A-Za-z]{3,}/.test(cand) && cand.length >= 6 && normalized.includes(cand)) {
-        return normalized.replace(cand, `<u>${cand}</u>`);
-      }
-    }
-  }
-
-  // 2. English snippet pattern from explanation (at least 15 chars)
-  const englishSnippetPat = /([A-Za-z][A-Za-z0-9\s,.'\-\–—;:!?()]{14,200})/g;
-  let em: RegExpExecArray | null;
-  while ((em = englishSnippetPat.exec(expl)) !== null) {
-    const cand = em[1].trim();
-    if (cand.length >= 15 && normalized.includes(cand)) {
-      const idx = normalized.indexOf(cand);
-      const promptMatch = normalized.match(/(?:Which (?:choice|finding|statement|quotation|sentence|idea|detail|claim)|Based on the|According to the)/i);
-      const pIdx = promptMatch ? promptMatch.index : -1;
-      if (pIdx === -1 || (pIdx !== undefined && idx < pIdx)) {
-        return normalized.replace(cand, `<u>${cand}</u>`);
-      }
-    }
-  }
-
-  // 3. Match by sentence position in passage
+  // Find passage & prompt split
   const promptMatch = normalized.match(/(?:Which (?:choice|finding|statement|quotation|sentence|idea|detail|claim|example)|Based on the|According to the|The student wants to|A student wants to)/i);
   const promptIdx = promptMatch && promptMatch.index !== undefined ? promptMatch.index : normalized.length;
+  let passage = normalized.substring(0, promptIdx).trim();
 
-  if (promptIdx > 20) {
-    let passage = normalized.substring(0, promptIdx).trim();
+  // If prompt asks about Text 1 vs Text 2
+  const asksAboutText1 = /underlined\s+(?:portion|sentence|claim|words?|phrase|statement|idea|part)\s+(?:of|in)\s+Text\s*1/i.test(normalized);
+  const asksAboutText2 = /underlined\s+(?:portion|sentence|claim|words?|phrase|statement|idea|part)\s+(?:of|in)\s+Text\s*2/i.test(normalized);
 
-    // If the prompt explicitly refers to Text 1 or Text 2, isolate that text
-    const asksAboutText1 = /underlined\s+(?:portion|sentence|claim|words?|phrase|statement|idea|part)\s+(?:of|in)\s+Text\s*1/i.test(normalized);
-    const asksAboutText2 = /underlined\s+(?:portion|sentence|claim|words?|phrase|statement|idea|part)\s+(?:of|in)\s+Text\s*2/i.test(normalized);
+  let targetPassage = passage;
+  if (asksAboutText1) {
+    const t2Match = passage.match(/(?:\n\n|\n|\.\s+)(?:\*\*)?(?:Text\s*2|Passage\s*2)(?:\*\*)?/i);
+    if (t2Match && t2Match.index !== undefined) {
+      targetPassage = passage.substring(0, t2Match.index).trim();
+    }
+  } else if (asksAboutText2) {
+    const t2Match = passage.match(/(?:\n\n|\n|\.\s+)(?:\*\*)?(?:Text\s*2|Passage\s*2)(?:\*\*)?[\s:\-–]*/i);
+    if (t2Match && t2Match.index !== undefined) {
+      targetPassage = passage.substring(t2Match.index + t2Match[0].length).trim();
+    }
+  }
 
-    if (asksAboutText1) {
-      const t2Match = passage.match(/(?:\n\n|\n|\.\s+)(?:\*\*)?(?:Text\s*2|Passage\s*2)(?:\*\*)?/i);
-      if (t2Match && t2Match.index !== undefined) {
-        passage = passage.substring(0, t2Match.index).trim();
+  // Strip intro line from targetPassage for sentence extraction
+  const cleanPassage = targetPassage.replace(/^(?:The following (?:text|passage)|This (?:text|passage)|Excerpt|Adapted from|In the following (?:text|passage))\s+(?:is|was|has been|from|adapted|excerpted|taken)[^\n]+?[\.\?!]["”']?\s*/i, '');
+
+  // 1. Direct quote extraction in Chinese explanation: e.g. 划线...“...” or “...” with >= 15 chars
+  const quotes: string[] = [];
+  const quoteRegex = /[“"']([^“”"'\n]{6,250})[”"']/g;
+  let qm: RegExpExecArray | null;
+  while ((qm = quoteRegex.exec(explAnalysis)) !== null) {
+    const qStr = qm[1].trim();
+    if (qStr && /[A-Za-z]{3,}/.test(qStr)) {
+      quotes.push(qStr);
+    }
+  }
+
+  for (const qStr of quotes) {
+    if (targetPassage.includes(qStr)) {
+      if (qStr.length >= 20 || qStr.split(/\s+/).length >= 4) {
+        return normalized.replace(qStr, `<u>${qStr}</u>`);
       }
-    } else if (asksAboutText2) {
-      const t2Match = passage.match(/(?:\n\n|\n|\.\s+)(?:\*\*)?(?:Text\s*2|Passage\s*2)(?:\*\*)?[\s:\-–]*/i);
-      if (t2Match && t2Match.index !== undefined) {
-        passage = passage.substring(t2Match.index + t2Match[0].length).trim();
+      if (qStr.length >= 10 && (explAnalysis.includes('划线') || explAnalysis.includes('画线'))) {
+        return normalized.replace(qStr, `<u>${qStr}</u>`);
       }
     }
+  }
 
-    const sentences = passage
-      .split(/(?<=[.!?])\s+(?=[A-Z“"\[0-9])/)
-      .map((s) => s.replace(/^(?:\*\*)?(?:Text\s*[12AB]|Passage\s*[12AB])(?:\*\*)?[\s:\-–]*/i, '').trim())
-      .filter((s) => s.length > 8);
+  // 2. Extract and match sentences
+  const sentences = cleanPassage
+    .split(/(?<=[.!?]["”']?)\s+(?=[A-Z“"\[0-9])/)
+    .map((s) => s.replace(/^(?:\*\*)?(?:Text\s*[12AB]|Passage\s*[12AB])(?:\*\*)?[\s:\-–]*/i, '').trim())
+    .filter((s) => s.length > 10 && targetPassage.includes(s));
 
-    if (sentences.length > 0) {
-      if (asksAboutText1) {
-        if (/文本\s*1\s*(?:的)?(?:第一句|首句|开头)/i.test(expl)) {
-          return normalized.replace(sentences[0], `<u>${sentences[0]}</u>`);
-        }
-        const last = sentences[sentences.length - 1];
-        return normalized.replace(last, `<u>${last}</u>`);
-      }
-      if (asksAboutText2) {
-        if (/文本\s*2\s*(?:的)?(?:第一句|首句|开头)/i.test(expl)) {
-          return normalized.replace(sentences[0], `<u>${sentences[0]}</u>`);
-        }
-        const last = sentences[sentences.length - 1];
-        return normalized.replace(last, `<u>${last}</u>`);
-      }
-
-      if (/第一句|首句|开头/i.test(expl)) {
+  if (sentences.length > 0) {
+    if (asksAboutText1) {
+      if (/文本\s*1\s*(?:的)?(?:第一句|首句|开头)/i.test(explAnalysis)) {
         return normalized.replace(sentences[0], `<u>${sentences[0]}</u>`);
       }
-      if (/第二句/i.test(expl) && sentences.length > 1) {
-        return normalized.replace(sentences[1], `<u>${sentences[1]}</u>`);
+      const last = sentences[sentences.length - 1];
+      return normalized.replace(last, `<u>${last}</u>`);
+    }
+    if (asksAboutText2) {
+      if (/文本\s*2\s*(?:的)?(?:第一句|首句|开头)/i.test(explAnalysis)) {
+        return normalized.replace(sentences[0], `<u>${sentences[0]}</u>`);
       }
-      if (/第三句/i.test(expl) && sentences.length > 2) {
-        return normalized.replace(sentences[2], `<u>${sentences[2]}</u>`);
-      }
-      if (/最后一句|末句|结尾|论断|主张|观点/i.test(expl)) {
-        const last = sentences[sentences.length - 1];
-        return normalized.replace(last, `<u>${last}</u>`);
-      }
-      if (/倒数第二句/i.test(expl) && sentences.length > 1) {
-        const pen = sentences[sentences.length - 2];
-        return normalized.replace(pen, `<u>${pen}</u>`);
-      }
-      if (/然而|但是|不过|相反|却/i.test(expl)) {
-        const transSent = sentences.find((s) =>
-          /^(?:However|Yet|Nonetheless|Nevertheless|But|In contrast|On the other hand)\b/i.test(s)
-        );
-        if (transSent) {
-          return normalized.replace(transSent, `<u>${transSent}</u>`);
-        }
-      }
+      const last = sentences[sentences.length - 1];
+      return normalized.replace(last, `<u>${last}</u>`);
+    }
 
-      let bestSent: string | null = null;
-      let maxOverlap = 0;
-      for (const sent of sentences) {
-        const words = sent.toLowerCase().match(/\b[a-z]{4,}\b/g) || [];
-        let score = 0;
-        for (const w of words) {
-          if (expl.toLowerCase().includes(w)) score++;
-        }
-        if (score > maxOverlap) {
-          maxOverlap = score;
-          bestSent = sent;
-        }
-      }
+    if (/第一句|首句|开头|第一句话/i.test(explAnalysis)) {
+      return normalized.replace(sentences[0], `<u>${sentences[0]}</u>`);
+    }
+    if (/第二句|第二句话/i.test(explAnalysis) && sentences.length > 1) {
+      return normalized.replace(sentences[1], `<u>${sentences[1]}</u>`);
+    }
+    if (/第三句|第三句话/i.test(explAnalysis) && sentences.length > 2) {
+      return normalized.replace(sentences[2], `<u>${sentences[2]}</u>`);
+    }
+    if (/倒数第二句/i.test(explAnalysis) && sentences.length > 1) {
+      const pen = sentences[sentences.length - 2];
+      return normalized.replace(pen, `<u>${pen}</u>`);
+    }
+    if (/最后划线句子|最后一句|末句|结尾|最后一句话/i.test(explAnalysis)) {
+      const last = sentences[sentences.length - 1];
+      return normalized.replace(last, `<u>${last}</u>`);
+    }
 
-      if (bestSent && maxOverlap >= 2) {
-        return normalized.replace(bestSent, `<u>${bestSent}</u>`);
-      }
-
-      const targetSentence = sentences.length > 1 ? sentences[sentences.length - 1] : sentences[0];
-      if (targetSentence) {
-        return normalized.replace(targetSentence, `<u>${targetSentence}</u>`);
+    if (/然而|但是|不过|转折|相反|却/i.test(explAnalysis)) {
+      const turnSent = sentences.find((s) => /^(?:However|Yet|But|Nevertheless|Nonetheless|Conversely|In contrast|Despite|Although)\b/i.test(s));
+      if (turnSent) {
+        return normalized.replace(turnSent, `<u>${turnSent}</u>`);
       }
     }
+
+    let bestSent: string | null = null;
+    let maxScore = 0;
+    for (const sent of sentences) {
+      const words = sent.match(/\b[A-Za-z]{4,}\b/g) || [];
+      let score = 0;
+      for (const w of words) {
+        if (explAnalysis.includes(w)) {
+          score++;
+        }
+      }
+      if (score > maxScore) {
+        maxScore = score;
+        bestSent = sent;
+      }
+    }
+
+    if (bestSent && maxScore >= 2) {
+      return normalized.replace(bestSent, `<u>${bestSent}</u>`);
+    }
+
+    const turnSent = sentences.find((s) => /^(?:However|Yet|But|Nevertheless|Nonetheless|Conversely|In contrast|Despite|Although)\b/i.test(s));
+    if (turnSent) {
+      return normalized.replace(turnSent, `<u>${turnSent}</u>`);
+    }
+
+    const last = sentences[sentences.length - 1];
+    return normalized.replace(last, `<u>${last}</u>`);
   }
 
   return normalized;

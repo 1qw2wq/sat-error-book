@@ -660,7 +660,10 @@ export function formatMathText(rawText: string): string {
   if (s.includes('<math')) {
     s = s.replace(/<math[\s\S]*?<\/math>/gi, (m) => {
       const latex = convertMathmlToLatex(m);
-      return latex ? `$${latex}$` : '';
+      if (!latex) return '';
+      const isBlock = /display=["']block["']/i.test(m);
+      const hasStructure = /[=+\-\/]/.test(latex) && (latex.includes('\\frac') || latex.includes('\\sqrt') || latex.includes('\\begin') || latex.includes('='));
+      return isBlock && hasStructure ? `\n\n$$${latex}$$\n\n` : `$${latex}$`;
     });
   }
 
@@ -802,6 +805,15 @@ export function formatMathText(rawText: string): string {
     cleanInner = cleanInner.replace(/\\lt\s*=/g, '\\le ').replace(/\\gt\s*=/g, '\\ge ');
     return `$${cleanInner}$`;
   });
+
+  // Ensure proper spacing between math tokens and surrounding punctuation/prose
+  s = s.replace(/,(\$[^\$]+\$)/g, ', $1');
+  s = s.replace(/(\$[^\$]+\$)([a-zA-Z])/g, '$1 $2');
+  s = s.replace(/([a-zA-Z])(\$[^\$]+\$)/g, '$1 $2');
+
+  // Separate leading display equations from following text
+  s = s.replace(/^(\$\$[^\$]+\$\$|\$[^\$\n]{5,}\$)(?!\n)\s*(?=[A-Z])/g, '$1\n\n');
+  s = s.replace(/(\$\$[^\$]+\$\$)(?!\n)\s*(?=[A-Z])/g, '$1\n\n');
 
   return s;
 }
