@@ -119,9 +119,9 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
     withGraphsCount: number;
     totalExams: number;
   }>({
-    totalQuestions: 9568,
-    readingWritingCount: 5476,
-    mathCount: 4092,
+    totalQuestions: 9816,
+    readingWritingCount: 5542,
+    mathCount: 4274,
     withGraphsCount: 373,
     totalExams: 100,
   });
@@ -180,7 +180,7 @@ export default function QuestionBank({ onRefreshData }: QuestionBankProps) {
   );
 
   // Live pool counter and generation state
-  const [livePoolCount, setLivePoolCount] = useState<number>(9568);
+  const [livePoolCount, setLivePoolCount] = useState<number>(9816);
   const [isCountingPool, setIsCountingPool] = useState<boolean>(false);
   const [isGeneratingTest, setIsGeneratingTest] = useState<boolean>(false);
 

@@ -34,158 +34,230 @@ export function normalizeMathUnicode(text: string): string {
 }
 
 /**
- * Detects and reconstructs flattened SAT tables (2D contingency tables, frequency tables, x/y tables)
- * into clean standard Markdown tables.
+ * Detects and reconstructs flattened SAT tables (multi-column tables, 2D contingency tables,
+ * frequency tables, x/y tables, and survey datasets) into clean standard GFM Markdown tables.
  */
 export function reconstructTablesFromText(text: string): string {
   if (!text) return '';
 
-  // If text already contains pipe tables, ensure formatting is clean
+  // If text already contains markdown pipe tables, return as is
   if (text.includes('|') && /\|[^\n]+\|/.test(text)) {
     return text;
   }
 
-  const clean = normalizeMathUnicode(text);
-  const lines = clean.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  if (lines.length < 4) return text;
+  const clean = normalizeMathUnicode(text).replace(/\u00A0/g, ' ');
+  const rawLines = clean
+    .split(/\r?\n/)
+    .map((l) => l.replace(/[\u200B\uFEFF]/g, '').trim())
+    .filter(Boolean);
 
-  const isPureNumber = (s: string) => {
-    if (!s) return false;
-    const cleanStr = s.replace(/[\$,%\u00A0\s]/g, '').replace(/,/g, '').trim();
-    return /^[\-+]?\d+(?:\.\d+)?$/.test(cleanStr) || /^\d+\/\d+$/.test(cleanStr);
+  if (rawLines.length < 4) return text;
+
+  // Step 1: Merge wrapped/broken lines (e.g. "Indo-\nPacific" -> "Indo-Pacific", "Minimum\ndepth (meters)" -> "Minimum depth (meters)")
+  // and split merged header tokens (e.g. "Country Max speed (km/h)")
+  const lines: string[] = [];
+  for (let i = 0; i < rawLines.length; i++) {
+    const curr = rawLines[i];
+    const mHead = curr.match(/^(Country|State|City|Year|Species|Category|Commodity|Hub)\s+(Max speed.*|Population.*|Frequency.*|Average.*|Total.*|Density.*|Elevation.*)$/i);
+    if (mHead) {
+      lines.push(mHead[1], mHead[2]);
+      continue;
+    }
+
+    if (i + 1 < rawLines.length) {
+      const nxt = rawLines[i + 1];
+      if (curr.endsWith('-') && nxt.length < 20 && !/^[•●·・▪‣⁃]/.test(nxt)) {
+        lines.push(curr + nxt);
+        i++;
+        continue;
+      } else if (
+        (/(?:minimum|maximum|average|weight|length|diameter|elevation|depth|data)/i.test(curr) || /^percent/i.test(curr)) &&
+        (/^\(|^depth|^size|^low|^high|^centroid|^value/i.test(nxt))
+      ) {
+        lines.push(curr + ' ' + nxt);
+        i++;
+        continue;
+      } else if (
+        /^(?:data|type|social or|year of|date of|common)$/i.test(curr) &&
+        nxt.length < 25
+      ) {
+        lines.push(curr + ' ' + nxt);
+        i++;
+        continue;
+      }
+    }
+    lines.push(curr);
+  }
+
+  // Type classifier for table cells
+  const detectCellType = (val: string): string => {
+    const v = val.trim();
+    if (/^\$[\d,]+(?:\.\d+)?$/.test(v)) return 'currency';
+    if (/^[\+\-]?[\d,]+(?:\.\d+)?%?$/.test(v)) return 'number';
+    if (/^(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+\d{4}$/i.test(v)) return 'date';
+    if (/^(?:Yes|No|True|False|None|N\/A)$/i.test(v)) return 'boolean';
+    if (/^(?:18\d\d|19\d\d|20\d\d)$/.test(v)) return 'year';
+    if (/^\d+(?:st|nd|rd|th)\s+century(?:\s+(?:BCE|CE))?$/i.test(v)) return 'century';
+    return 'text';
   };
 
-  const isNumericOrMathValue = (s: string) => {
-    if (!s) return false;
-    const cleanStr = s.replace(/[\$,%\u00A0\s]/g, '').replace(/,/g, '').trim();
-    if (/^[\-+]?\d+(?:\.\d+)?$/.test(cleanStr) || /^\d+\/\d+$/.test(cleanStr)) return true;
-    if (/^[a-zA-Z]$/.test(cleanStr)) return true; // single variable like a, b, k, n, x, y
-    if (/^[\-+]?\d*[a-zA-Z](?:[\+\-]\d+)?$/.test(cleanStr)) return true; // e.g. 2x, -3k
-    if (/^[\-+]?\d+(?:\.\d+)?%?$/.test(cleanStr)) return true;
-    return false;
+  const isPureNumber = (s: string): boolean => {
+    const v = s.replace(/[\$,%]/g, '').trim();
+    return /^[\+\-]?\d+(?:\.\d+)?$/.test(v);
   };
 
-  const isRowLabel = (s: string) => {
-    if (!s) return false;
-    if (s.length > 60) return false;
-    if (s.endsWith('?')) return false;
-    if (/^(The|Which|What|How|If|For|In|Adapted|Excerpt|According to)\s+/i.test(s)) return false;
+  const isYear = (s: string): boolean => {
+    return /^(?:18\d\d|19\d\d|20\d\d)$/.test(s.trim());
+  };
+
+  const isValidHeader = (h: string): boolean => {
+    if (!h || h.length > 55) return false;
+    if (isPureNumber(h) && !isYear(h)) return false;
+    if (h.startsWith('$')) return false;
+    if (/^[•●·・▪‣⁃]/.test(h) || /^KING\s+/i.test(h)) return false;
+    if (h.length > 30 && h.endsWith('.') && !/^\d+\./.test(h)) return false;
     return true;
   };
 
-  const isRowValue = (s: string) => {
-    if (!s) return false;
-    if (isNumericOrMathValue(s)) return true;
-    if (s.length <= 30 && !s.endsWith('?') && !s.endsWith('.')) return true;
-    return false;
+  const isCellCandidate = (line: string): boolean => {
+    const l = line.trim();
+    if (!l || l.length > 65) return false;
+    if (l.endsWith('?') && !/(?:nominated\?|flight\?|applicable\?|present\?|available\?)/i.test(l)) return false;
+    if (/^[•●·・▪‣⁃]/.test(l) || /^KING\s+/i.test(l)) return false;
+    if (l.length > 35 && l.endsWith('.') && !/^\d+\./.test(l)) return false;
+    return true;
   };
 
-  // 1. Detect flattened 2D contingency tables (Row Label + N numbers/values per row)
-  for (let i = 0; i < lines.length; i++) {
-    const rows: { label: string; values: string[] }[] = [];
-    let currIdx = i;
+  const scoreTable = (headerLines: string[], rowsData: string[][]): number => {
+    const numCols = headerLines.length;
+    const numRows = rowsData.length;
+    if (numRows < 2 || numCols < 2) return -1;
 
-    while (currIdx < lines.length) {
-      const label = lines[currIdx];
-      if (!isRowLabel(label) || isPureNumber(label)) {
-        break;
-      }
-
-      let valIdx = currIdx + 1;
-      const vals: string[] = [];
-      while (valIdx < lines.length && isNumericOrMathValue(lines[valIdx])) {
-        vals.push(lines[valIdx]);
-        valIdx++;
-      }
-
-      if (vals.length >= 2) {
-        if (rows.length === 0 || rows[0].values.length === vals.length) {
-          rows.push({ label, values: vals });
-          currIdx = valIdx;
-          continue;
-        }
-      }
-      break;
+    for (const h of headerLines) {
+      if (!isValidHeader(h)) return -1;
     }
 
-    if (rows.length >= 2) {
-      const numCols = rows[0].values.length;
-      const colHeaders: string[] = [];
-      let headerStartIdx = i - 1;
+    let score = 0;
+    for (const h of headerLines) {
+      const hl = h.toLowerCase();
+      if (h.length > 35) score -= 40;
+      if (/(?:title|country|category|species|month|location|commodity|member|ranking|percentage|percent|type|name|hub|site|option|group|region|year|sample|treatment|depth|temperature|hours|earnings|price|frequency|mass|date|director|nominated|speed|elevation|size|low|high|description|value|entree|area|perimeter|rectangle|change|average|total|rate|weight|length|diameter|service|leader|stakeholder|public|resolution|age)/i.test(hl)) {
+        score += 25;
+      }
+      if (/^(?:x|y|f\(x\)|g\(x\)|h\(x\))$/.test(hl)) {
+        score += 40;
+      }
+      if (isYear(h) || /^age\s+\d+/i.test(hl)) {
+        score += 30;
+      }
+    }
 
-      while (headerStartIdx >= 0 && colHeaders.length < numCols) {
-        const h = lines[headerStartIdx];
-        if (h.endsWith('?') || (h.split(' ').length > 12 && h.endsWith('.'))) break;
-        colHeaders.unshift(h);
-        headerStartIdx--;
+    for (let c = 0; c < numCols; c++) {
+      const colVals = rowsData.map((r) => r[c]);
+      const colTypes = colVals.map(detectCellType);
+      const counts: Record<string, number> = {};
+      for (const t of colTypes) counts[t] = (counts[t] || 0) + 1;
+      let mostCommon = 'text';
+      let maxFreq = 0;
+      for (const [k, v] of Object.entries(counts)) {
+        if (v > maxFreq) {
+          maxFreq = v;
+          mostCommon = k;
+        }
       }
 
-      if (colHeaders.length === numCols) {
-        let rowHeaderTitle = 'Category';
-        let superHeader = '';
+      if (maxFreq === numRows) {
+        score += 30;
+      } else if (maxFreq >= numRows * 0.75) {
+        score += 15;
+      } else {
+        score -= 25;
+      }
 
-        if (headerStartIdx >= 0 && !lines[headerStartIdx].endsWith('.') && !lines[headerStartIdx].endsWith('?')) {
-          const possibleTitle = lines[headerStartIdx];
-          headerStartIdx--;
-          if (headerStartIdx >= 0 && !lines[headerStartIdx].endsWith('.') && !lines[headerStartIdx].endsWith('?')) {
-            rowHeaderTitle = lines[headerStartIdx];
-            superHeader = possibleTitle;
-          } else {
-            rowHeaderTitle = possibleTitle;
-          }
+      if (['currency', 'number', 'date', 'boolean', 'year', 'century'].includes(mostCommon)) {
+        score += 35;
+      } else if (mostCommon === 'text' && c === 0) {
+        score += 20;
+      }
+    }
+
+    return score;
+  };
+
+  let bestCandidate: {
+    title: string;
+    headers: string[];
+    rows: string[][];
+    startIdx: number;
+    endIdx: number;
+  } | null = null;
+  let bestScore = 0;
+
+  for (let startIdx = 0; startIdx < Math.min(5, lines.length); startIdx++) {
+    for (let numCols = 2; numCols <= 7; numCols++) {
+      if (startIdx + numCols > lines.length) continue;
+      const headerLines = lines.slice(startIdx, startIdx + numCols);
+      if (!headerLines.every(isValidHeader)) continue;
+
+      let rowIdx = startIdx + numCols;
+      const cells: string[] = [];
+      while (rowIdx < lines.length) {
+        const candidate = lines[rowIdx];
+        if (!isCellCandidate(candidate)) break;
+        cells.push(candidate);
+        rowIdx++;
+      }
+
+      const numRows = Math.floor(cells.length / numCols);
+      if (numRows >= 2) {
+        const rowsData: string[][] = [];
+        for (let r = 0; r < numRows; r++) {
+          rowsData.push(cells.slice(r * numCols, (r + 1) * numCols));
         }
 
-        let mdTable = '\n\n';
-        if (superHeader) {
-          mdTable += `**${superHeader}**\n\n`;
+        let s = scoreTable(headerLines, rowsData);
+        if (startIdx > 0 && lines[startIdx - 1].length > 15) {
+          s += 15;
         }
-        mdTable += `| ${rowHeaderTitle} | ${colHeaders.join(' | ')} |\n`;
-        mdTable += `| :--- | ${colHeaders.map(() => ':---').join(' | ')} |\n`;
-        for (const row of rows) {
-          mdTable += `| ${row.label} | ${row.values.join(' | ')} |\n`;
+
+        if (s > bestScore && s >= 40) {
+          bestScore = s;
+          const prevLine = startIdx > 0 ? lines[startIdx - 1] : '';
+          const isTitle =
+            startIdx > 0 &&
+            prevLine.length < 90 &&
+            !prevLine.endsWith('?') &&
+            !/^(?:the table|for a |each of|a total of)/i.test(prevLine);
+
+          bestCandidate = {
+            title: isTitle ? prevLine : '',
+            headers: headerLines,
+            rows: rowsData,
+            startIdx: isTitle ? startIdx - 1 : startIdx,
+            endIdx: startIdx + numCols + numRows * numCols,
+          };
         }
-        mdTable += '\n\n';
-
-        const beforeText = lines.slice(0, headerStartIdx + 1).join('\n\n');
-        const afterText = lines.slice(currIdx).join('\n\n');
-
-        return (beforeText ? beforeText + '\n\n' : '') + mdTable.trim() + (afterText ? '\n\n' + afterText : '');
       }
     }
   }
 
-  // 2. Detect 2-column key-value / x-y / Frequency tables
-  for (let i = 0; i < lines.length - 3; i++) {
-    const h1 = lines[i];
-    const h2 = lines[i + 1];
-    if (
-      isRowLabel(h1) &&
-      isRowLabel(h2) &&
-      !isPureNumber(h1) &&
-      !isPureNumber(h2)
-    ) {
-      let valIdx = i + 2;
-      const pairs: [string, string][] = [];
-      while (
-        valIdx + 1 < lines.length &&
-        isRowValue(lines[valIdx]) &&
-        isRowValue(lines[valIdx + 1])
-      ) {
-        pairs.push([lines[valIdx], lines[valIdx + 1]]);
-        valIdx += 2;
-      }
-      if (pairs.length >= 2) {
-        let mdTable = `\n\n| ${h1} | ${h2} |\n| :--- | :--- |\n`;
-        for (const [x, y] of pairs) {
-          mdTable += `| ${x} | ${y} |\n`;
-        }
-        mdTable += '\n\n';
-
-        const beforeText = lines.slice(0, i).join('\n\n');
-        const afterText = lines.slice(valIdx).join('\n\n');
-        return (beforeText ? beforeText + '\n\n' : '') + mdTable.trim() + (afterText ? '\n\n' + afterText : '');
-      }
+  if (bestCandidate) {
+    let mdTable = '\n\n';
+    if (bestCandidate.title) {
+      mdTable += `### ${bestCandidate.title}\n\n`;
     }
+
+    mdTable += '| ' + bestCandidate.headers.join(' | ') + ' |\n';
+    mdTable += '| ' + bestCandidate.headers.map(() => ':---').join(' | ') + ' |\n';
+    for (const row of bestCandidate.rows) {
+      mdTable += '| ' + row.join(' | ') + ' |\n';
+    }
+    mdTable += '\n\n';
+
+    const beforeText = lines.slice(0, bestCandidate.startIdx).join('\n\n');
+    const afterText = lines.slice(bestCandidate.endIdx).join('\n\n');
+
+    return (beforeText ? beforeText + '\n\n' : '') + mdTable.trim() + (afterText ? '\n\n' + afterText : '');
   }
 
   return text;

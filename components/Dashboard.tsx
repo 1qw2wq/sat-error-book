@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Flame,
   CheckCircle2,
@@ -38,6 +38,27 @@ export default function Dashboard({
   onImageReady,
   onImagesReady,
 }: DashboardProps) {
+  const [bankTotalQuestions, setBankTotalQuestions] = useState<number>(9816);
+
+  useEffect(() => {
+    let ignore = false;
+    async function loadBankStats() {
+      try {
+        const res = await fetch('/api/questions?action=stats');
+        const data = await res.json();
+        if (!ignore && data.success && typeof data.totalQuestions === 'number') {
+          setBankTotalQuestions(data.totalQuestions);
+        }
+      } catch {
+        // Fallback default
+      }
+    }
+    loadBankStats();
+    return () => {
+      ignore = true;
+    };
+  }, []);
+
   const totalLogged = errors.length;
   const masteredCount = errors.filter((e) => e.masteryStatus === 'Mastered').length;
   const learningCount = errors.filter((e) => e.masteryStatus === 'Learning').length;
@@ -281,7 +302,7 @@ export default function Dashboard({
           <div className="space-y-2 max-w-xl">
             <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 text-xs font-bold uppercase tracking-wider">
               <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
-              <span>9,568 Authentic SAT Questions Added</span>
+              <span>{bankTotalQuestions.toLocaleString()} Authentic SAT Questions Available</span>
             </div>
             <h3 className="text-xl sm:text-2xl font-black text-white leading-snug">
               Official SAT Past Exam Question Bank
